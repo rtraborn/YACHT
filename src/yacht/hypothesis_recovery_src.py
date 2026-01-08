@@ -193,12 +193,8 @@ def get_exclusive_hashes(
 
     # Get sample hashes
     sample_hashes = set(sample_sig.minhash.hashes)
-   
-     # Get sample hashes keys 
-    sample_hashes_keys = sample_sig.minhash.hashes.keys()
-    samp_kmers_items = sample_sig.minhash.hashes.items()
-    samp_dict = dict(samp_kmers_items)
-    
+
+    # Calculate coverage statistics for each organism
     stats_list = []
     for md5sum in tqdm(organism_md5sum_list, desc="Processing coverage per organism"):
             sig = load_signature_with_ksize(
@@ -207,9 +203,12 @@ def get_exclusive_hashes(
             )
             stats_out = cov_calc(sample_sig, sig) #location of cov_calc, which calculates effective coverage and other things according to Shaw and Yu (2024)
             stats_list.append(stats_out)
-    
+
     final_stats_df = pd.concat(stats_list, ignore_index=True)
-    
+
+    # Add organism_name to final_stats_df for merging (stats are in same order as sub_manifest)
+    final_stats_df['organism_name'] = sub_manifest['organism_name'].values
+
     del stats_list # free up memory
 
     # Find hashes that are unique to each organism and in the sample
@@ -221,26 +220,6 @@ def get_exclusive_hashes(
         exclusive_hashes_info.append(
             (len(exclusive_hashes), len(exclusive_hashes.intersection(sample_hashes)))
         )
-
-    # Calculate lambda and other related coverage metrics for each organism in the sample
-    #logger.info("Calculate lambda for each organism in the sample")
-    #for i, lambda_stats in enumerate()
-
-    columns_of_interest = [
-    'naive_ani', 
-    'final_est_ani', 
-    'final_est_cov', 
-    'mean_cov', 
-    'median_cov',
-    'lambda_ci',
-    'ani_ci'
-    ]
-
-    # Select only those columns from the DataFrame
-    selected_data = final_stats_df[columns_of_interest]
-    summary_stats = selected_data.describe()
-
-    #print(summary_stats)
 
     return exclusive_hashes_info, sub_manifest, final_stats_df
 
@@ -288,7 +267,6 @@ def single_hyp_test(
     """
     # get the number of unique k-mers
     num_exclusive_kmers = exclusive_hashes_info_org[0]
-    #print(exclusive_hashes_info_org) ##printing the output of this to determine what the data structure looks like
     # mutation rate
     non_mut_p = (ani_thresh) ** ksize
     # # assuming coverage of 1, how many unique k-mers would I need to observe in order to reject the null hypothesis?
@@ -321,7 +299,6 @@ def single_hyp_test(
 
     # How many unique k-mers do I actually see?
     num_matches = exclusive_hashes_info_org[1]
-    #print(num_matches) #printing this for testing
     # calculate the p-value considering the coverage
     if num_matches <= num_exclusive_kmers_coverage:
         p_val = binom.cdf(num_matches, num_exclusive_kmers_coverage, non_mut_p)
@@ -456,4 +433,27 @@ def hypothesis_recovery(
         manifest["min_coverage"] = min_coverage
         manifest_list.append(pd.concat([manifest, results], axis=1))
 
-    return manifest_list, final_stats_df
+    # Merge coverage statistics into each manifest DataFrame
+    # Select key coverage columns to include in output
+    coverage_cols = [
+        'organism_name',
+        'naive_ani',
+        'final_est_ani',
+        'final_est_cov',
+        'mean_cov',
+        'median_cov',
+        'lambda_status',
+        'ani_ci',
+        'lambda_ci'
+    ]
+    coverage_stats = final_stats_df[coverage_cols].copy()
+
+    # Merge coverage stats into each manifest in the list
+    for i in range(len(manifest_list)):
+        manifest_list[i] = manifest_list[i].merge(
+            coverage_stats,
+            on='organism_name',
+            how='left'  # Keep all organisms, even those without coverage stats
+        )
+
+    return manifest_list
