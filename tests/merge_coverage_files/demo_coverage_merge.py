@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Minimal demonstration that coverage merging logic works correctly
-This simulates what happens at the end of hypothesis_recovery()
+This serves as a inimal demonstration that the new Superyacht coverage merging logic works correctly
+
+This code snippet simulates the end of hypothesis_recovery()
 """
 import pandas as pd
 
@@ -45,11 +46,11 @@ def demo_coverage_merge():
 
     print(final_stats_df.to_string(index=False))
 
-    # This is the merge operation that happens in hypothesis_recovery()
+    # The merge operation that occurs in hypothesis_recovery()
     print("\n3. MERGING: Combining coverage stats with hypothesis results")
     print("-" * 70)
 
-    # Select coverage columns to include
+    # Coverage columns to include
     coverage_cols = [
         'organism_name',
         'naive_ani',
@@ -63,11 +64,11 @@ def demo_coverage_merge():
     ]
     coverage_stats = final_stats_df[coverage_cols].copy()
 
-    # Perform the merge (this is the NEW code in hypothesis_recovery_src.py)
+    # Performs the merge (this is the new code in hypothesis_recovery_src.py)
     merged_df = manifest_df.merge(
         coverage_stats,
         on='organism_name',
-        how='left'  # Keep all organisms, even those without coverage stats
+        how='left'  # Keeps all organisms, even those without coverage stats
     )
 
     print("Code executed:")
