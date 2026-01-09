@@ -36,6 +36,12 @@ MAX_MEDIAN_FOR_MEAN_FINAL_EST: float = 15.0
 MIN_COUNT_THRESH: int = 3
 ksize: int = 31  # Note: hard-coding this for now
 
+# Relevant for "Winner map" and ANI filtering constants
+# Minimum ANI threshold for including organisms in final results
+# Organisms with final_est_ani < MIN_ANI_THRESHOLD are filtered out after winner_map processing; prevents low-quality matches from appearing in output
+# Value of 0.90 (90% ANI) matches sylph's default (MIN_ANI_DEF in sylph/src/constants.rs)
+MIN_ANI_THRESHOLD: float = 0.90
+
 # Set up global variables
 __version__ = "2.0.1"
 GITHUB_API_URL = "https://api.github.com/repos/KoslickiLab/YACHT/contents/demo/{path}"

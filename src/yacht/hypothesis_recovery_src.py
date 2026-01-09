@@ -10,11 +10,56 @@ from tqdm import tqdm
 from multiprocessing import Pool
 import sourmash
 import glob
-from typing import List, Set, Tuple
-from .utils import load_signature_with_ksize, decompress_all_sig_files
+from typing import List, Set, Tuple, Dict
+from .utils import load_signature_with_ksize, decompress_all_sig_files, MIN_ANI_THRESHOLD
 # Configure Loguru logger
 from loguru import logger
 from .cov_calc import cov_calc
+
+"""
+Hypothesis Recovery and Coverage Analysis Module
+
+This module implements YACHT's core statistical framework for organism detection
+in metagenomic samples, with integrated coverage modeling and abundance estimation.
+
+Overview:
+    YACHT uses exclusive k-mers (unique to each organism) for hypothesis testing,
+    combined with coverage-adjusted ANI estimates (Shaw & Yu, 2024) and winner_map
+    k-mer reassignment (sylph strategy) for accurate abundance quantification.
+
+Main Workflow:
+    1. get_organisms_with_nonzero_overlap()
+       └─> Filter organisms with any k-mer matches to sample
+
+    2. get_exclusive_hashes()
+       ├─> Find k-mers exclusive to each organism (for hypothesis testing)
+       ├─> Calculate coverage/ANI using cov_calc() (Shaw & Yu, 2024)
+       ├─> Build winner_map (assign shared k-mers to highest ANI organism)
+       └─> Estimate relative abundance (normalized, prevents double-counting)
+
+    3. hypothesis_recovery()
+       ├─> Run binomial tests on exclusive k-mers (presence/absence)
+       ├─> Merge hypothesis results with coverage statistics
+       └─> Filter organisms with ANI < 90% threshold
+
+Key Design:
+    Single-pass architecture: Coverage calculated once, winner_map used for
+    abundance estimation without recalculation. Maintains performance while
+    adding abundance quantification.
+
+Output:
+    DataFrame with columns: in_sample_est, p_vals, final_est_ani, final_est_cov,
+    rel_abund, kmers_lost, and more. See documentation for details.
+
+References:
+    Shaw, J., & Yu, Y. W. (2024). Rapid species-level metagenome profiling and
+    containment estimation with sylph. Nature Biotechnology.
+    https://doi.org/10.1038/s41587-024-02412-y
+
+See Also:
+    WINNER_MAP_IMPLEMENTATION_SUMMARY.md - Implementation details
+    WINNER_MAP_INTEGRATION_ANALYSIS.md - Design decision rationale
+"""
 
 warnings.filterwarnings("ignore")
 
@@ -221,7 +266,143 @@ def get_exclusive_hashes(
             (len(exclusive_hashes), len(exclusive_hashes.intersection(sample_hashes)))
         )
 
+    # ============================================================================
+    # Winner Map Integration: K-mer Reassignment & Relative Abundance
+    # ============================================================================
+    #
+    # Problem: Closely related organisms share many k-mers. If we count these
+    # independently, we double-count abundance.
+    #
+    # Solution: "Winner takes all" strategy from sylph - assign each shared k-mer
+    # to the organism with the highest ANI.
+    #
+    # Process:
+    #   1. build_winner_map() - For each k-mer, find organism with highest ANI
+    #   2. estimate_relative_abundance() - Count only k-mers "won" by each organism
+    #   3. Normalize so all rel_abund sum to 1.0
+    #
+    # Design Note:
+    #   This is Option 2 (single-pass + abundance). Coverage already calculated
+    #   above (cov_calc loop). Winner_map uses those results without recalculation.
+    #   For two-pass approach (Option 1), see WINNER_MAP_INTEGRATION_ANALYSIS.md
+    #
+    # Performance:
+    #   Same as before - no additional cov_calc runs. Winner_map is fast (hash table).
+    #
+    logger.info("Building winner map for k-mer reassignment and relative abundance estimation")
+    winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize)
+    final_stats_df = estimate_relative_abundance(final_stats_df, winner_map, sample_sig)
+
     return exclusive_hashes_info, sub_manifest, final_stats_df
+
+
+def build_winner_map(
+    final_stats_df: pd.DataFrame,
+    path_to_genome_temp_dir: str,
+    ksize: int
+) -> Dict[int, Tuple[float, str]]:
+    """
+    Build a winner map that assigns each k-mer to the organism with the highest ANI.
+
+    This implements the "winner takes all" strategy from sylph (Shaw and Yu, 2024) where
+    shared k-mers are assigned to the organism with the best ANI match. This prevents
+    double-counting of shared k-mers across closely related organisms.
+
+    :param final_stats_df: DataFrame with coverage statistics including organism_name,
+                          final_est_ani, and genome_sketch columns
+    :param path_to_genome_temp_dir: Path to directory containing genome signature files
+    :param ksize: K-mer size
+    :return: Dictionary mapping k-mer hash -> (ani, organism_name)
+             Only the organism with highest ANI "wins" each k-mer
+    """
+    from .utils import load_signature_with_ksize
+
+    winner_map = {}
+
+    logger.info("Building winner map for k-mer reassignment")
+
+    for idx, row in tqdm(final_stats_df.iterrows(), total=len(final_stats_df), desc="Building winner map"):
+        organism_name = row['organism_name']
+        ani = row['final_est_ani']
+
+        # Skip organisms with no ANI estimate
+        if pd.isna(ani):
+            continue
+
+        # Load genome signature to get k-mers
+        genome_sig = row['genome_sketch']
+
+        # For each k-mer in this genome, check if it should be reassigned
+        for kmer in genome_sig.minhash.hashes.keys():
+            if kmer not in winner_map or ani > winner_map[kmer][0]:
+                # This organism has higher ANI, so it "wins" this k-mer
+                winner_map[kmer] = (ani, organism_name)
+
+    logger.info(f"Winner map built with {len(winner_map)} k-mers assigned to {len(final_stats_df)} organisms")
+
+    return winner_map
+
+
+def estimate_relative_abundance(
+    final_stats_df: pd.DataFrame,
+    winner_map: Dict[int, Tuple[float, str]],
+    sample_sig: sourmash.SourmashSignature
+) -> pd.DataFrame:
+    """
+    Estimate relative abundance of each organism based on winner_map k-mer assignments.
+
+    After winner_map assigns shared k-mers to organisms with highest ANI, we calculate:
+    1. How many k-mers each organism "lost" to others (kmers_lost)
+    2. Total coverage from k-mers "won" by each organism (used for relative abundance)
+    3. Relative abundance normalized across all organisms
+
+    :param final_stats_df: DataFrame with coverage statistics
+    :param winner_map: K-mer to (ANI, organism_name) mapping from build_winner_map()
+    :param sample_sig: Sample signature with k-mer abundances
+    :return: Updated DataFrame with rel_abund and kmers_lost columns populated
+    """
+    logger.info("Estimating relative abundance using winner map")
+
+    # Initialize columns
+    final_stats_df['kmers_lost'] = 0
+    final_stats_df['rel_abund'] = 0.0
+
+    sample_hashes = sample_sig.minhash.hashes
+
+    for idx, row in tqdm(final_stats_df.iterrows(), total=len(final_stats_df), desc="Calculating relative abundance"):
+        organism_name = row['organism_name']
+        genome_sig = row['genome_sketch']
+
+        kmers_lost_count = 0
+        total_coverage = 0.0
+
+        # Check each k-mer in this genome
+        for kmer in genome_sig.minhash.hashes.keys():
+            # Check if this organism "won" this k-mer
+            if kmer in winner_map:
+                winner_organism = winner_map[kmer][1]
+
+                if winner_organism != organism_name:
+                    # This k-mer was reassigned to another organism
+                    kmers_lost_count += 1
+                else:
+                    # This organism won this k-mer - count its coverage
+                    if kmer in sample_hashes:
+                        total_coverage += sample_hashes[kmer]
+
+        final_stats_df.at[idx, 'kmers_lost'] = kmers_lost_count
+        final_stats_df.at[idx, 'rel_abund'] = total_coverage
+
+    # Normalize relative abundance to sum to 1.0 across all organisms
+    total_abundance = final_stats_df['rel_abund'].sum()
+    if total_abundance > 0:
+        final_stats_df['rel_abund'] = final_stats_df['rel_abund'] / total_abundance
+        logger.info(f"Relative abundance normalized (total coverage: {total_abundance:.2f})")
+    else:
+        logger.warning("No coverage found for relative abundance calculation")
+
+    return final_stats_df
+
 
 def get_alt_mut_rate(
     nu: int, thresh: int, ksize: int, significance: float = 0.99
@@ -434,7 +615,7 @@ def hypothesis_recovery(
         manifest_list.append(pd.concat([manifest, results], axis=1))
 
     # Merge coverage statistics into each manifest DataFrame
-    # Select key coverage columns to include in output
+    # Select key coverage columns to include in output (including winner_map results)
     coverage_cols = [
         'organism_name',
         'naive_ani',
@@ -444,7 +625,9 @@ def hypothesis_recovery(
         'median_cov',
         'lambda_status',
         'ani_ci',
-        'lambda_ci'
+        'lambda_ci',
+        'rel_abund',      # Relative abundance from winner_map
+        'kmers_lost'      # K-mers reassigned to other organisms
     ]
     coverage_stats = final_stats_df[coverage_cols].copy()
 
@@ -455,5 +638,40 @@ def hypothesis_recovery(
             on='organism_name',
             how='left'  # Keep all organisms, even those without coverage stats
         )
+
+    # ============================================================================
+    # ANI Threshold Filtering
+    # ============================================================================
+    #
+    # After winner_map k-mer reassignment, filter organisms with low ANI.
+    #
+    # Why filter?
+    #   - Removes poor matches (distant relatives, contamination, low complexity)
+    #   - Improves result quality by eliminating noise
+    #   - Standard practice in metagenomic profiling
+    #
+    # Threshold: MIN_ANI_THRESHOLD = 0.90 (90% ANI)
+    #   - Matches sylph's MIN_ANI_DEF default
+    #   - 90% ANI commonly used for genus-level distinction
+    #   - Well-supported by microbial genomics literature
+    #
+    # Implementation:
+    #   Keep organisms with final_est_ani >= 0.90 OR NaN ANI
+    #   (NaN kept because hypothesis test may still be valid via exclusive k-mers)
+    #
+    # Customization:
+    #   To change threshold, modify MIN_ANI_THRESHOLD in utils.py
+    #
+    logger.info(f"Filtering organisms with final_est_ani < {MIN_ANI_THRESHOLD} ({MIN_ANI_THRESHOLD*100:.0f}% ANI)")
+    for i in range(len(manifest_list)):
+        initial_count = len(manifest_list[i])
+        # Keep organisms with ANI >= threshold OR organisms with no ANI estimate (NaN)
+        manifest_list[i] = manifest_list[i][
+            (manifest_list[i]['final_est_ani'] >= MIN_ANI_THRESHOLD) |
+            (manifest_list[i]['final_est_ani'].isna())
+        ].reset_index(drop=True)
+        filtered_count = initial_count - len(manifest_list[i])
+        if filtered_count > 0:
+            logger.info(f"  Filtered {filtered_count} organisms below ANI threshold from min_coverage={manifest_list[i]['min_coverage'].iloc[0] if len(manifest_list[i]) > 0 else 'N/A'} results")
 
     return manifest_list
