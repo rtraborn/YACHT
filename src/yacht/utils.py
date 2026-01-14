@@ -31,6 +31,7 @@ FILE_LOCATION = os.path.dirname(os.path.realpath(__file__))
 # Sylph (Shaw and Yu, 2024) related constants
 SAMPLE_SIZE_CUTOFF: int = 25
 PVALUE_CUTOFF: float = 0.9999999999
+MIN_ANI_THRESHOLD: float = 0.90  # Minimum ANI threshold for filtering organisms
 MEDIAN_ANI_THRESHOLD: float = 2.00
 MAX_MEDIAN_FOR_MEAN_FINAL_EST: float = 15.0
 MIN_COUNT_THRESH: int = 3
