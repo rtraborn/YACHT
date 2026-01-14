@@ -34,13 +34,8 @@ PVALUE_CUTOFF: float = 0.9999999999
 MEDIAN_ANI_THRESHOLD: float = 2.00
 MAX_MEDIAN_FOR_MEAN_FINAL_EST: float = 15.0
 MIN_COUNT_THRESH: int = 3
+LAMBDA_EPSILON: float = 1e-10  # Minimum lambda value to avoid dividing by zero
 ksize: int = 31  # Note: hard-coding this for now
-
-# Relevant for "Winner map" and ANI filtering constants
-# Minimum ANI threshold for including organisms in final results
-# Organisms with final_est_ani < MIN_ANI_THRESHOLD are filtered out after winner_map processing; prevents low-quality matches from appearing in output
-# Value of 0.90 (90% ANI) matches sylph's default (MIN_ANI_DEF in sylph/src/constants.rs)
-MIN_ANI_THRESHOLD: float = 0.90
 
 # Set up global variables
 __version__ = "2.0.1"
@@ -853,22 +848,27 @@ def ani_from_lambda(lambda_val, lam_mean, k_value, full_cov):
         full_cov: A list of integers to analyze for non-zero counts.
 
     Returns:
-        An optional float representing the calculated adjusted index 'ani', 
+        An optional float representing the calculated adjusted index 'ani',
         or None if the input lambda is None, or if 'ani' is negative or NaN.
     """
     if lambda_val == None:
         return None
+
+    # Check if lambda is too close to zero so that we avoid dividing by zero
+    if abs(lambda_val) < LAMBDA_EPSILON:
+        return None
+
     contain_count = 0
     zero_count = 0
     for x in full_cov:
         if x != 0:
             contain_count += 1
-        
+
         else:
             zero_count += 1
 
     if not full_cov:
-        return None 
+        return None
 
     adj_index = contain_count / (1.0 - math.exp(-lambda_val)) / len(full_cov)
     
