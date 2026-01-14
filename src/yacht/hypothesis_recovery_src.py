@@ -119,7 +119,7 @@ def get_organisms_with_nonzero_overlap(
     return multisearch_result["match_name"].to_list()
 
 
-# Adding a global variable for sharing sample_sig across worker processes (reduces overhead)
+# Global variable for sharing sample signature across worker processes
 _worker_sample_sig = None
 
 def _init_coverage_worker(sample_sig):
@@ -238,16 +238,21 @@ def get_exclusive_hashes(
 
     # Calculate coverage statistics for each organism (parallelized)
     logger.info(f"Calculating coverage statistics using {num_threads} threads")
+
+    # Calculate optimal chunk size to balance load dist.
+    chunk_size = max(1, len(organism_md5sum_list) // (num_threads * 4))
+    logger.info(f"Using chunk size of {chunk_size} for parallel processing")
+
     with Pool(processes=num_threads, initializer=_init_coverage_worker, initargs=(sample_sig,)) as pool:
-        # Prepare arguments for parallel processing (sample_sig shared to avoid overhead)
+        # Prepare arguments for parallel processing (sample_sig shared via initializer to avoid pickling overhead)
         args_list = [
             (md5sum, path_to_genome_temp_dir, ksize)
             for md5sum in organism_md5sum_list
         ]
-        # Use imap for progress tracking with tqdm
+        # Use imap_unordered instead of imap
         stats_list = list(
             tqdm(
-                pool.imap(_calculate_coverage_worker, args_list),
+                pool.imap_unordered(_calculate_coverage_worker, args_list, chunksize=chunk_size),
                 total=len(organism_md5sum_list),
                 desc="Processing coverage per organism"
             )
