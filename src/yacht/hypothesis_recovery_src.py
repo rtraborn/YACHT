@@ -243,9 +243,8 @@ def get_exclusive_hashes(
     # Calculate coverage statistics for each organism (parallelized)
     logger.info(f"Calculating coverage statistics using {num_threads} threads")
 
-    # Calculate optimal chunk size: total tasks / (num_workers * 4)
-    # This balances load distribution with task dispatch overhead
-    chunk_size = max(1, len(organism_md5sum_list) // (num_threads * 4))
+    # Calculate (organism) chunk size for progress visibility
+    chunk_size = max(1, len(organism_md5sum_list) // (num_threads * 50))
     logger.info(f"Using chunk size of {chunk_size} for parallel processing")
 
     with Pool(processes=num_threads, initializer=_init_coverage_worker, initargs=(sample_sig,)) as pool:
