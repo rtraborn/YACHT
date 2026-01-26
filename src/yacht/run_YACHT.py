@@ -61,6 +61,14 @@ def add_arguments(parser):
         default=1000,
     )
     parser.add_argument(
+        "--no_two_pass",
+        action="store_true",
+        help="Disable sylph's two-pass winner-takes-all approach. Uses original one-pass method. "
+             "Two-pass (default) is more accurate for closely related organisms but slower. "
+             "Only applies when --winner_takes_all is enabled.",
+        default=False,
+    )
+    parser.add_argument(
         "--keep_raw", action="store_true", help="Keep raw results in output file."
     )
     parser.add_argument(
@@ -94,6 +102,7 @@ def main(args):
     num_threads = args.num_threads  # Number of threads to use for parallelization.
     winner_takes_all = args.winner_takes_all  # Enable winner-takes-all k-mer reassignment
     batch_size = args.batch_size  # Batch size for winner-takes-all processing
+    two_pass = not args.no_two_pass  # Use sylph's two-pass approach (default: True)
     keep_raw = args.keep_raw  # Keep raw results in output file.
     show_all = args.show_all # Show all organisms (no matter if present) in output file.
     min_coverage_list = args.min_coverage_list # a list of percentages of unique k-mers covered by reads in the sample.
@@ -218,6 +227,7 @@ def main(args):
         num_threads,
         winner_takes_all,
         batch_size,
+        two_pass,
     )
 
     # remove unnecessary columns
