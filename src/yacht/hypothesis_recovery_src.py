@@ -434,7 +434,11 @@ def estimate_relative_abundance(
                             total_coverage += sample_hashes[kmer]
 
             final_stats_df.at[idx, 'kmers_lost'] = kmers_lost_count
-            final_stats_df.at[idx, 'rel_abund'] = total_coverage
+
+            # Normalizes coverage by genome size to avoid bias toward larger genomes
+            # (genome size estimated as num_kmers * the scale factor from sourmash)
+            genome_size = len(genome_sig.minhash.hashes) * genome_sig.minhash.scaled
+            final_stats_df.at[idx, 'rel_abund'] = total_coverage / genome_size if genome_size > 0 else 0.0
 
     # Normalize relative abundance to sum to 1.0 across all organisms
     total_abundance = final_stats_df['rel_abund'].sum()
