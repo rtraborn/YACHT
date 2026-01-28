@@ -52,8 +52,7 @@ def cov_calc(sample_sig: sourmash.SourmashSignature, genome_sig: sourmash.Sourma
     naive_ani = math.pow(contain_count/len(gn_kmers_items),
         1/ksize)
 
-    # Cap naive_ani at 1.0 to prevent biologically impossible values
-    # This can happen with edge cases in k-mer counting or numerical precision
+    # Caps naive_ani at 1.0 to prevent biologically impossible ANIs
     if naive_ani > 1.0:
         logger.debug(f"Naive ANI {naive_ani:.6f} exceeds 1.0, capping at 1.0")
         naive_ani = 1.0
