@@ -800,21 +800,30 @@ def hypothesis_recovery(
         logger.info("Using calculate_coverage mode: applying calculated coverage per organism")
 
         # Build a mapping from organism_name to calculated coverage (final_est_cov)
-        # Use final_est_cov if available, otherwise fall back to 1.0
+        # Coverage depth (lambda) is converted to detection fraction using Poisson probability:
+        #  P(a k-mer is detected) = 1 - exp(-lambda)
+        # This gives the expected fraction of k-mers that will be observed at least once.
         coverage_map = {}
         for _, row in final_stats_df.iterrows():
             org_name = row['organism_name']
             cov_val = row['final_est_cov']
+            median_cov = row['median_cov']
+
             if pd.notna(cov_val) and cov_val > 0:
-                # Normalize coverage to [0, 1] range for hypothesis test
-                # final_est_cov is lambda (expected k-mer count), we need fraction
-                # Use min(1.0, cov_val) to cap at 1.0 since it's a coverage fraction
-                # For lambda > 1, we use 1.0 (full coverage expected)
-                coverage_map[org_name] = min(1.0, cov_val) if cov_val <= 1.0 else 1.0
+                # Primary choicev: use final_est_cov (lambda) with Poisson detection probability
+                # Convert depth to the expected fraction of k-mers detected
+                coverage_map[org_name] = 1.0 - np.exp(-cov_val)
+            elif pd.notna(median_cov) and median_cov > 0:
+                # Fallback: use median_cov when lambda estimation failed
+                # This helps detect low-abundance taxa where lambda couldn't be estimated
+                # (e.g., fewer than 25 non-zero coverage values)
+                coverage_map[org_name] = 1.0 - np.exp(-median_cov)
+                logger.warning(f"No valid lambda for {org_name}, using median_cov={median_cov:.3f} "
+                             f"(detection fraction: {coverage_map[org_name]:.3f})")
             else:
-                # Fallback: if no valid coverage, use conservative value
+                # Last resort: if neither is available, use strictest test
                 coverage_map[org_name] = 1.0
-                logger.warning(f"No valid coverage for {org_name}, using default 1.0")
+                logger.warning(f"No valid coverage data for {org_name}, using default 1.0")
 
         # Get organism names in manifest order (aligned with exclusive_hashes_info)
         organism_names = manifest["organism_name"].to_list()
