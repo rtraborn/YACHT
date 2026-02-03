@@ -713,6 +713,7 @@ def hypothesis_recovery(
     winner_takes_all: bool = False,
     batch_size: int = 1000,
     two_pass: bool = True,
+    calculate_coverage: bool = False,
 ):
     """
     Go through each of the organisms that have non-zero overlap with the sample and perform a hypothesis test for the
@@ -737,6 +738,7 @@ def hypothesis_recovery(
     :param ani_thresh: threshold for ANI (i.e. how similar do the genomes need to be in order to be considered the same)
     :param num_threads: number of threads to use for parallelization
     :param two_pass: bool (use sylph's two-pass approach for winner-takes-all, default: True)
+    :param calculate_coverage: bool (use calculated coverage per organism instead of min_coverage_list, default: False)
     :return: a list of pandas dataframe with the results of the hypothesis tests based on different min_coverage values
     """
 
@@ -792,8 +794,35 @@ def hypothesis_recovery(
 
     # Using multiprocessing.Pool to parallelize the execution
     manifest_list = []
-    for min_coverage in tqdm(min_coverage_list, desc="Computing hypothesis recovery"):
-        logger.info(f"Computing hypothesis recovery for min_coverage={min_coverage}")
+
+    if calculate_coverage:
+        # CALCULATE_COVERAGE MODE: Use calculated coverage (final_est_cov) per organism
+        logger.info("Using calculate_coverage mode: applying calculated coverage per organism")
+
+        # Build a mapping from organism_name to calculated coverage (final_est_cov)
+        # Use final_est_cov if available, otherwise fall back to 1.0
+        coverage_map = {}
+        for _, row in final_stats_df.iterrows():
+            org_name = row['organism_name']
+            cov_val = row['final_est_cov']
+            if pd.notna(cov_val) and cov_val > 0:
+                # Normalize coverage to [0, 1] range for hypothesis test
+                # final_est_cov is lambda (expected k-mer count), we need fraction
+                # Use min(1.0, cov_val) to cap at 1.0 since it's a coverage fraction
+                # For lambda > 1, we use 1.0 (full coverage expected)
+                coverage_map[org_name] = min(1.0, cov_val) if cov_val <= 1.0 else 1.0
+            else:
+                # Fallback: if no valid coverage, use conservative value
+                coverage_map[org_name] = 1.0
+                logger.warning(f"No valid coverage for {org_name}, using default 1.0")
+
+        # Get organism names in manifest order (aligned with exclusive_hashes_info)
+        organism_names = manifest["organism_name"].to_list()
+
+        # Build per-organism coverage list aligned with exclusive_hashes_info
+        per_organism_coverage = [coverage_map.get(name, 1.0) for name in organism_names]
+
+        # Run hypothesis test with per-organism coverage
         with Pool(processes=num_threads) as p:
             params = (
                 (
@@ -801,19 +830,44 @@ def hypothesis_recovery(
                     ksize,
                     significance,
                     ani_thresh,
-                    min_coverage,
+                    per_organism_coverage[i],  # Per-organism coverage
                 )
                 for i in range(len(exclusive_hashes_info))
             )
             results = p.starmap(single_hyp_test, params)
-        logger.info(f"Finished computing all results for min_coverage value: {min_coverage}")
+        logger.info("Finished computing hypothesis recovery with calculate_coverage")
 
-        # Create a pandas dataframe to store the results
+        # Create results DataFrame
         results = pd.DataFrame(results, columns=given_columns)
 
-        # combine the results with the manifest
-        manifest["min_coverage"] = min_coverage
+        # Add per-organism coverage to manifest (replaces the fixed min_coverage column)
+        manifest["min_coverage"] = per_organism_coverage
         manifest_list.append(pd.concat([manifest, results], axis=1))
+
+    else:
+        # ORIGINAL MODE: Loop over user-supplied min_coverage_list
+        for min_coverage in tqdm(min_coverage_list, desc="Computing hypothesis recovery"):
+            logger.info(f"Computing hypothesis recovery for min_coverage={min_coverage}")
+            with Pool(processes=num_threads) as p:
+                params = (
+                    (
+                        exclusive_hashes_info[i],
+                        ksize,
+                        significance,
+                        ani_thresh,
+                        min_coverage,
+                    )
+                    for i in range(len(exclusive_hashes_info))
+                )
+                results = p.starmap(single_hyp_test, params)
+            logger.info(f"Finished computing all results for min_coverage value: {min_coverage}")
+
+            # Create a pandas dataframe to store the results
+            results = pd.DataFrame(results, columns=given_columns)
+
+            # combine the results with the manifest
+            manifest["min_coverage"] = min_coverage
+            manifest_list.append(pd.concat([manifest, results], axis=1))
 
     # Merge coverage statistics into each manifest DataFrame
     # Select key coverage columns to include in output (including winner_map results)
