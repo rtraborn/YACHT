@@ -239,9 +239,9 @@ def run_yacht_train_core(
     selected_sig_files = pd.read_csv(os.path.join(path_to_temp_dir, 'selected_result.tsv'), sep="\t", header=None)
     selected_sig_files = selected_sig_files[0].to_list()
     
-    # get the mapping from signature file name to genome name
-    mapping = {sig_info_dict[name][-1]:name for name in sig_info_dict}
-    selected_genome_names_set = set([mapping[sig_file_path] for sig_file_path in selected_sig_files])
+    # get the mapping from signature file name to genome name; normalize to basename for matching
+    mapping = {os.path.basename(sig_info_dict[name][-1]):name for name in sig_info_dict}
+    selected_genome_names_set = set([mapping[os.path.basename(sig_file_path)] for sig_file_path in selected_sig_files])
 
     # remove the close related organisms from the reference genome list
     manifest_df = []
