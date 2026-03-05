@@ -303,7 +303,13 @@ def collect_signature_info(
             ],
         )
 
-    return {sig[1]: (sig[2], sig[3], sig[4], sig[5], sig[0]) for sig in tqdm(signatures) if sig}
+    def get_key_with_warning(sig):
+        if not sig[1]:
+            logger.warning(f"Signature has no name, using md5sum as identifier: {sig[2]}")
+            return sig[2]
+        return sig[1]
+    
+    return {get_key_with_warning(sig): (sig[2], sig[3], sig[4], sig[5], sig[0]) for sig in tqdm(signatures) if sig}
 
 
 class Prediction:
