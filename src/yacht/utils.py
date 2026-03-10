@@ -240,7 +240,7 @@ def run_yacht_train_core(
     selected_sig_files = selected_sig_files[0].to_list()
     
     # get the mapping from signature file name to genome name; normalize to basename for matching. Basename extracted from C++
-    mapping = {sig_info_dict[name][0] + '.sig':name for name in sig_info_dict}
+    mapping = {os.path.basename(sig_info_dict[name][-1]): name for name in sig_info_dict}
     selected_genome_names_set = set([mapping[os.path.basename(sig_file_path)] for sig_file_path in selected_sig_files])
 
 
