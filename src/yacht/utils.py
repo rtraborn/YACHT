@@ -569,23 +569,28 @@ def check_download_args(args, db_type):
             logger.error("We now haven't supported for virus database.")
             sys.exit(1)
 
-
 def _decompress_and_remove(file_path: str) -> None:
     """
     Decompresses a GZIP-compressed file and removes the original compressed file.
     :param file_path: The path to the .sig.gz file that needs to be decompressed and deleted.
     :return: None
     """
+    import subprocess
     try:
         output_filename = os.path.splitext(file_path)[0]
-        with gzip.open(file_path, 'rb') as f_in:
-            with open(output_filename, 'wb') as f_out:
-                f_out.write(f_in.read())
-
-        os.remove(file_path)
-
+        with open(output_filename, 'wb') as f_out:
+            result = subprocess.run(
+                ['gunzip', '-c', file_path],
+                stdout=f_out,
+                stderr=subprocess.PIPE
+            )
+        if result.returncode == 0:
+            os.remove(file_path)
+        else:
+            logger.info(f"gunzip failed for {file_path}: {result.stderr.decode()}")
     except Exception as e:
         logger.info(f"Failed to process {file_path}: {e}")
+
         
 def decompress_all_sig_files(sig_files: List[str], num_threads: int) -> None:
     """
