@@ -277,7 +277,7 @@ def main(args):
             temp_manifest = manifest_list[0].copy()
             if not show_all:
                 temp_manifest = temp_manifest[temp_manifest["in_sample_est"] == True]
-		        # Adding re-normalization here also
+		# Adding re-normalization here also
                 total_abundance = temp_manifest['rel_abund'].sum()
                 if total_abundance > 0:
                     temp_manifest.loc[:, 'rel_abund'] = temp_manifest['rel_abund'] / total_abundance
@@ -306,7 +306,8 @@ def main(args):
             for min_coverage, temp_manifest in zip(min_coverage_list, manifest_list):
                 if not show_all:
                     temp_manifest = temp_manifest[temp_manifest["in_sample_est"] == True]
-                    total_abundance = temp_manifest['rel_abund'].sum()
+                    #adding renormilization for the original behavior
+		    total_abundance = temp_manifest['rel_abund'].sum()
                     if total_abundance > 0:
                         temp_manifest.loc[:, 'rel_abund'] = temp_manifest['rel_abund'] / total_abundance
                 temp_manifest.to_excel(
