@@ -685,9 +685,7 @@ def single_hyp_test(
     in_sample_est = (num_matches >= acceptance_threshold_with_coverage) and (
         num_matches != 0
     )
-    # return in_sample_est, p_val, num_exclusive_kmers, num_exclusive_kmers_coverage, num_matches, \
-    #        acceptance_threshold_wo_coverage, acceptance_threshold_with_coverage, actual_confidence_wo_coverage, \
-    #        actual_confidence_with_coverage, alt_confidence_mut_rate, alt_confidence_mut_rate_with_coverage
+  
     return (
         in_sample_est,
         p_val,
@@ -903,29 +901,7 @@ def hypothesis_recovery(
             how='left'  # Keep all organisms, even those without coverage stats
         )
 
-    # ============================================================================
-    # ANI Threshold Filtering
-    # ============================================================================
-    #
-    # After winner_map k-mer reassignment, filter organisms with low ANI.
-    #
-    # Why filter?
-    #   - Removes poor matches (distant relatives, contamination, low complexity)
-    #   - Improves result quality by eliminating noise
-    #   - Standard practice in metagenomic profiling
-    #
-    # Threshold: MIN_ANI_THRESHOLD = 0.90 (90% ANI)
-    #   - Matches sylph's MIN_ANI_DEF default
-    #   - 90% ANI commonly used for genus-level distinction
-    #   - Well-supported by microbial genomics literature
-    #
-    # Implementation:
-    #   Keep organisms with final_est_ani >= 0.90 OR NaN ANI
-    #   (NaN kept because hypothesis test may still be valid via exclusive k-mers)
-    #
-    # Customization:
-    #   To change threshold, modify MIN_ANI_THRESHOLD in utils.py
-    #
+   # ANI threshold filtering
     logger.info(f"Filtering organisms with final_est_ani < {MIN_ANI_THRESHOLD} ({MIN_ANI_THRESHOLD*100:.0f}% ANI)")
     for i in range(len(manifest_list)):
         initial_count = len(manifest_list[i])
@@ -937,5 +913,13 @@ def hypothesis_recovery(
         filtered_count = initial_count - len(manifest_list[i])
         if filtered_count > 0:
             logger.info(f"  Filtered {filtered_count} organisms below ANI threshold from min_coverage={manifest_list[i]['min_coverage'].iloc[0] if len(manifest_list[i]) > 0 else 'N/A'} results")
-
+            #post_filtered_df['rel_abund'] = post_filtered_df['rel_abund'] / total_abundance
+        # Re-normalizing, regardless of filter results (i.e. filtered_count)
+        post_filtered_df = manifest_list[i]
+        total_abundance = post_filtered_df['rel_abund'].sum()
+        if total_abundance > 0:
+            manifest_list[i].loc[:, 'rel_abund'] = manifest_list[i]['rel_abund'] / total_abundance
+            logger.info(f"Relative abundance normalized (total coverage: {total_abundance:.2f}.)")
+        else:
+            logger.warning(f"No relative abundance was done after ANI filtering.")                
     return manifest_list
