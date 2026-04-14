@@ -32,18 +32,8 @@ def add_arguments(parser):
     parser.add_argument(
         "--sheet_name",
         type=str,
-        help="The sheet name of the YACHT output excel file. "
-             "Required unless --single_sheet is used.",
-        required=False,
-        default=None,
-    )
-    parser.add_argument(
-        "--single_sheet",
-        action="store_true",
-        default=False,
-        help="Use this flag when the input was produced with --calculate_coverage. "
-             "Automatically selects the 'calculated_coverage' sheet. "
-             "Cannot be used together with --sheet_name.",
+        help="The sheet name of the YACHT output excel file.",
+        required=True,
     )
     parser.add_argument(
         "--genome_to_taxid",
@@ -80,23 +70,12 @@ def add_arguments(parser):
 
 def main(args):
     yacht_output = args.yacht_output
+    sheet_name = args.sheet_name
     genome_to_taxid = args.genome_to_taxid
     mode = args.mode
     sample_name = args.sample_name
     outfile_prefix = args.outfile_prefix
     outdir = args.outdir
-
-    # resolves sheet name from --sheet_name or --single_sheet
-    if args.single_sheet and args.sheet_name:
-        logger.error("--single_sheet and --sheet_name are mutually exclusive.")
-        raise ValueError
-    elif args.single_sheet:
-        sheet_name = "calculated_coverage"
-    elif args.sheet_name:
-        sheet_name = args.sheet_name
-    else:
-        logger.error("One of either --sheet_name or --single_sheet must be provided.")
-        raise ValueError
 
     # check if the yacht output file exists
     if not os.path.exists(yacht_output):
@@ -113,20 +92,9 @@ def main(args):
         os.makedirs(outdir)
 
     # load the yacht output
-    try:
-        yacht_output_df = pd.read_excel(
-            yacht_output, sheet_name=sheet_name, engine="openpyxl"
-        )
-    except ValueError as e:
-        if args.single_sheet:
-            logger.error(
-                f"Sheet 'calculated_coverage' not found in {yacht_output}. "
-                "This sheet is only present when YACHT was run with --calculate_coverage. "
-                "If you used a min_coverage list instead, use --sheet_name to specify the sheet."
-            )
-        else:
-            logger.error(f"Sheet '{sheet_name}' not found in {yacht_output}: {e}")
-        raise
+    yacht_output_df = pd.read_excel(
+        yacht_output, sheet_name=sheet_name, engine="openpyxl"
+    )
     # converet the first column to string
     yacht_output_df["organism_name"] = yacht_output_df["organism_name"].astype(str)
 
@@ -279,7 +247,7 @@ class StandardizeYachtOutput:
 
         ## select the organisms that YACHT considers to present in the sample
         yacht_res_df = self.yacht_output.copy()
-        organism_id_list = yacht_res_df["organism_name"].tolist()
+        organism_id_list = yacht_res_df["organism_name"].str.split().str[0].tolist()
 
         if len(organism_id_list) == 0:
             logger.error("No organism is detected by YACHT.")
