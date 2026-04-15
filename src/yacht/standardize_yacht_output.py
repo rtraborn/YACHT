@@ -304,7 +304,7 @@ class StandardizeYachtOutput:
                 self.yacht_output
                 .assign(_key=self.yacht_output["organism_name"].str.split().str[0])
                 .set_index("_key")["rel_abund"]
-                .reindex(sorted(genome_id_set, fill_value=0.0))
+                .reindex(sorted(genome_id_set), fill_value=0.0)
                 .fillna(0.0)
             )
             total_weight = org_weights.sum()
