@@ -290,6 +290,38 @@ class StandardizeYachtOutput:
             "genome_id in @organism_id_list"
         ).reset_index(drop=True)
 
+        ## Determine per-organism weights for percentage calculation.
+        ## Use rel_abund (relative abundance from winner-takes-all) when available;
+        ## fall back to uniform count-based weights otherwise.
+        use_rel_abund = (
+            "rel_abund" in self.yacht_output.columns
+            and self.yacht_output["rel_abund"].notna().any()
+        )
+        if use_rel_abund:
+            genome_id_set = set(selected_organism_metadata_df["genome_id"])
+            org_weights = (
+                self.yacht_output
+                .assign(_key=self.yacht_output["organism_name"].str.split().str[0])
+                .set_index("_key")["rel_abund"]
+                .reindex(genome_id_set, fill_value=0.0)
+                .fillna(0.0)
+            )
+            total_weight = org_weights.sum()
+            if total_weight == 0:
+                logger.warning(
+                    "Sum of rel_abund is zero; falling back to count-based percentages."
+                )
+                use_rel_abund = False
+            else:
+                weight_lookup = org_weights.to_dict()
+        if not use_rel_abund:
+            logger.warning(
+                "rel_abund values not available (YACHT was not run with --winner_takes_all). "
+                "Falling back to count-based percentages."
+            )
+            total_weight = float(len(selected_organism_metadata_df))
+            weight_lookup = None
+
         ## Summarize the results
         summary_dict = {}
         for row in selected_organism_metadata_df.to_numpy():
@@ -301,6 +333,7 @@ class StandardizeYachtOutput:
             taxid_list = list(np.array(row[3].split("|"))[select_index])
             lineage_list = list(np.array(row[4].split("|"))[select_index])
             rank_list = list(np.array(row[5].split("|"))[select_index])
+            weight = weight_lookup.get(row[0], 0.0) if use_rel_abund else 1.0
             current_lineage = ""
             current_taxid = ""
             for index, (taxid, rank, lineage) in enumerate(
@@ -317,15 +350,15 @@ class StandardizeYachtOutput:
                         "RANK": rank,
                         "TAXPATH": current_taxid,
                         "TAXPATHSN": current_lineage,
-                        "count": 1,
+                        "weight": weight,
                     }
                 else:
-                    summary_dict[taxid]["count"] += 1
+                    summary_dict[taxid]["weight"] += weight
 
         # calculate percentage
         for taxid in summary_dict:
             summary_dict[taxid]["PERCENTAGE"] = (
-                summary_dict[taxid]["count"] / len(selected_organism_metadata_df) * 100
+                summary_dict[taxid]["weight"] / total_weight * 100
             )
 
         ## sort by rank in allowable rank list
@@ -335,7 +368,7 @@ class StandardizeYachtOutput:
             .rename(columns={"index": "TAXID"})
         )
         res_df = [summary_df.query(f'RANK == "{rank}"') for rank in self.allowable_rank]
-        res_df = pd.concat(res_df).drop(columns=["count"]).reset_index(drop=True)
+        res_df = pd.concat(res_df).drop(columns=["weight"]).reset_index(drop=True)
         res_df.columns = ["@@TAXID", "RANK", "TAXPATH", "TAXPATHSN", "PERCENTAGE"]
 
         ## output summary results
