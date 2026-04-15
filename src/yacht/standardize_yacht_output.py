@@ -301,7 +301,7 @@ class StandardizeYachtOutput:
         if "rel_abund" in self.yacht_output.columns and not use_rel_abund:
             logger.warning(
                 "rel_abund column is present but empty — YACHT run was likely executed without "
-                "--winner_takes_all. Reverting to count-based percentages."
+                "--winner_takes_all."
         ) 
         if use_rel_abund:
             genome_id_set = set(selected_organism_metadata_df["genome_id"])
