@@ -290,9 +290,7 @@ class StandardizeYachtOutput:
             "genome_id in @organism_id_list"
         ).reset_index(drop=True)
 
-        ## Determine per-organism weights for percentage calculation.
-        ## Use rel_abund (relative abundance from winner-takes-all) when available;
-        ## fall back to uniform count-based weights otherwise.
+        ## Determines per-organism weights for percentage calculation.
         use_rel_abund = (
             "rel_abund" in self.yacht_output.columns
             and self.yacht_output["rel_abund"].notna().any()
@@ -309,14 +307,13 @@ class StandardizeYachtOutput:
             total_weight = org_weights.sum()
             if total_weight == 0:
                 logger.warning(
-                    "Sum of rel_abund is zero; falling back to count-based percentages."
+                    "Sum of rel_abund is zero; reverting to count-based percentages."
                 )
                 use_rel_abund = False
             else:
                 weight_lookup = org_weights.to_dict()
         if not use_rel_abund:
             logger.warning(
-                "rel_abund values not available (YACHT was not run with --winner_takes_all). "
                 "Falling back to count-based percentages."
             )
             total_weight = float(len(selected_organism_metadata_df))
