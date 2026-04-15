@@ -41,9 +41,12 @@ def add_arguments(parser):
         "--single_sheet",
         action="store_true",
         default=False,
-        help="Use this flag when the input was produced with --calculate_coverage. "
-             "Automatically selects the 'calculated_coverage' sheet. "
-             "Cannot be used together with --sheet_name.",
+        help="Automatically selects the 'calculated_coverage' sheet produced when "
+        "yacht run is invoked with --calculate_coverage. For full relative "
+        "abundance percentages, yacht run must also have been called with "
+        "--winner_takes_all; otherwise percentages revert to count-based. "
+        "Mutually exclusive with --sheet_name."
+    
     )
     parser.add_argument(
         "--genome_to_taxid",
