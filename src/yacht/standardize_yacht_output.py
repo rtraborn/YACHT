@@ -370,6 +370,7 @@ class StandardizeYachtOutput:
         res_df = [summary_df.query(f'RANK == "{rank}"') for rank in self.allowable_rank]
         res_df = pd.concat(res_df).drop(columns=["weight"]).reset_index(drop=True)
         res_df.columns = ["@@TAXID", "RANK", "TAXPATH", "TAXPATHSN", "PERCENTAGE"]
+        res_df["PERCENTAGE"] = res_df["PERCENTAGE"].round(6)
 
         ## output summary results
         if len(res_df) == 0:
