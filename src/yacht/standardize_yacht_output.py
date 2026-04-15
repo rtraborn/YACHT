@@ -304,7 +304,7 @@ class StandardizeYachtOutput:
                 self.yacht_output
                 .assign(_key=self.yacht_output["organism_name"].str.split().str[0])
                 .set_index("_key")["rel_abund"]
-                .reindex(genome_id_set, fill_value=0.0)
+                .reindex(sorted(genome_id_set, fill_value=0.0))
                 .fillna(0.0)
             )
             total_weight = org_weights.sum()
@@ -315,7 +315,7 @@ class StandardizeYachtOutput:
                 use_rel_abund = False
             else:
                 weight_lookup = org_weights.to_dict()
-        if not use_rel_abund:
+        elif not use_rel_abund:
             logger.warning(
                 "Falling back to count-based percentages."
             )
