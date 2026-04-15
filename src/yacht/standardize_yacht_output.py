@@ -129,7 +129,7 @@ def main(args):
             )
         else:
             logger.error(f"Sheet '{sheet_name}' not found in {yacht_output}: {e}")
-        raise
+        sys.exit(1) 
     # converet the first column to string
     yacht_output_df["organism_name"] = yacht_output_df["organism_name"].astype(str)
 
