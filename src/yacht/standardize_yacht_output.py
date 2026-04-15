@@ -298,6 +298,11 @@ class StandardizeYachtOutput:
             "rel_abund" in self.yacht_output.columns
             and self.yacht_output["rel_abund"].notna().any()
         )
+        if "rel_abund" in self.yacht_output.columns and not use_rel_abund:
+            logger.warning(
+                "rel_abund column is present but empty — YACHT run was likely executed without "
+                "--winner_takes_all. Reverting to count-based percentages."
+        ) 
         if use_rel_abund:
             genome_id_set = set(selected_organism_metadata_df["genome_id"])
             org_weights = (
