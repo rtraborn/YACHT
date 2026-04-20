@@ -618,15 +618,24 @@ def newton_raphson(ratio: float, mean: float):
     """
     Shaw and Yu (2024)'s implmentation of Newton-Raphson use to assist in the calculation of lambda.
     """
+    ratio = min(ratio, 1.0 - LAMBDA_EPSILON)
     curr = mean / (1 - ratio)
-    
-    for _ in range(1000): #iterates to converge on an approximation for the root
+
+    for _ in range(1000):
         t1 = (1 - ratio) * curr
         e_curr = math.exp(-curr)
         t2 = mean * (1 - e_curr)
-        t3 = 1 - ratio 
+        t3 = 1 - ratio
         t4 = mean * e_curr
-        curr = curr - (t1 - t2) / (t3 - t4)
+        denom = t3 - t4
+        if abs(denom) < LAMBDA_EPSILON:
+            break
+        prev = curr
+        curr = curr - (t1 - t2) / denom
+        if not math.isfinite(curr):
+            return None
+        if abs(curr - prev) < LAMBDA_EPSILON:
+            break
     return curr
 
 def mle_zip(full_covs: list[int], _k: float):
@@ -649,10 +658,10 @@ def mle_zip(full_covs: list[int], _k: float):
         return None
 
     mean = np.mean(full_covs)
-    nr_input = num_zero/len(full_covs)
+    nr_input = n_zero / len(full_covs)
     lambda_out = newton_raphson(nr_input, mean)
 
-    if lambda_out < 0 or math.isnan(lambda_out):
+    if lambda_out is None or lambda_out < 0 or not math.isfinite(lambda_out):
         lambda_ret = None
     else:
         lambda_ret = lambda_out
