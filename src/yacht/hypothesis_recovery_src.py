@@ -479,12 +479,14 @@ def recalculate_ani_from_winner_map(
 
             # Check if we have enough data for lambda estimation
             if len(won_kmers_in_sample) < SAMPLE_SIZE_CUTOFF:
-                # Not enough won k-mers in sample - mark as eliminated
-                final_stats_df.at[idx, 'reassignment_status'] = 'eliminated'
-                final_stats_df.at[idx, 'final_est_ani'] = float('nan')
-                eliminated_count += 1
+                # Insufficient "won" k-mers for reliable lambda re-estimation, but don't eliminate
+                # Instead compute naive ANI from won k-mers and fall back
+                if total_won_kmers > 0:
+                    naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
+                    final_stats_df.at[idx, 'final_est_ani'] = naive_won_ani
+                final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
                 continue
-
+            
             # Build full_cov array (zeros for won k-mers not in sample + coverages for those in sample)
             num_zeros = total_won_kmers - len(won_kmers_in_sample)
             full_cov = [0] * num_zeros + won_kmers_in_sample
@@ -819,6 +821,7 @@ def hypothesis_recovery(
             fallback_coverage = 1.0 - np.exp(-median_lambda)
             logger.info(f"Sample-wide median lambda: {median_lambda:.4f}, "
                 f"fallback detection fraction: {fallback_coverage:.4f}")
+            logger.info(f"DEBUG: fallback_coverage computed as {fallback_coverage:.4f}")
         else:
         # Truly no valid estimates at all — last resort
             fallback_coverage = 0.1

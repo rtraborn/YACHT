@@ -361,7 +361,7 @@ The output file will be an EXCEL file; column descriptions can be found [here](d
 * `rel_abund`: Relative abundance estimate (0-1, normalized across all organisms in sample)
 * `kmers_lost`: Number of k-mers reassigned to organisms with higher ANI
 
-**ANI Filtering:** Organisms with `final_est_ani < 0.90` (90% ANI) are automatically filtered from results to remove low-quality matches.
+**ANI Filtering:** Organisms with `final_est_ani < 0.95` (95% ANI) are automatically filtered from results to remove low-quality matches.
 
 </br>
 
