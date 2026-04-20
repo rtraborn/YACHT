@@ -21,7 +21,7 @@ no_adj = False #consider updating this in future SUPERYACHT arguments
 winner_map = None #skipping this step in this version
 kmers_lost_count = None
 
-def cov_calc(sample_sig: sourmash.SourmashSignature, genome_sig: sourmash.SourmashSignature):
+def cov_calc(sample_sig: sourmash.SourmashSignature, genome_sig: sourmash.SourmashSignature, convergence_nr: bool = True):
     """
     Function that calculates lambda according to Shaw and Yu (2024) from two sourmash.Minshash files (resresenting the sample and the genome sketches). 
     """
@@ -106,7 +106,7 @@ def cov_calc(sample_sig: sourmash.SourmashSignature, genome_sig: sourmash.Sourma
         elif (myArgs.bin == True):
             test_lambda = binary_search_lambda(full_covs)
         elif (myArgs.mle) == True:
-            test_lambda = mle_zip(full_covs, gn_kmers_items)
+            test_lambda = mle_zip(full_covs, gn_kmers_items, convergence_nr)
         else:
             test_lambda = ratio_lambda(full_covs, MIN_COUNT_THRESH)
 

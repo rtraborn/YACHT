@@ -127,17 +127,20 @@ def get_organisms_with_nonzero_overlap(
     return multisearch_result["match_name"].to_list()
 
 
-# Global variable for sharing sample signature across worker processes
+# Global variables for sharing state across worker processes
 _worker_sample_sig = None
+_worker_convergence_nr = True
 
-def _init_coverage_worker(sample_sig):
+def _init_coverage_worker(sample_sig, convergence_nr):
     """
-    Initializer for worker processes to set up shared sample signature.
+    Initializer for worker processes to set up shared sample signature and convergence flag.
 
     :param sample_sig: Sample signature to be shared across all workers
+    :param convergence_nr: Whether to use convergence criterion in Newton-Raphson
     """
-    global _worker_sample_sig
+    global _worker_sample_sig, _worker_convergence_nr
     _worker_sample_sig = sample_sig
+    _worker_convergence_nr = convergence_nr
 
 def _calculate_coverage_worker(args):
     """
@@ -153,7 +156,7 @@ def _calculate_coverage_worker(args):
             os.path.join(path_to_genome_temp_dir, "signatures", md5sum + SIG_SUFFIX),
             ksize,
         )
-        result_df = cov_calc(_worker_sample_sig, sig)
+        result_df = cov_calc(_worker_sample_sig, sig, _worker_convergence_nr)
         if result_df is not None:
             # Add organism_name to the result for proper matching
             result_df['organism_name'] = organism_name
@@ -173,6 +176,7 @@ def get_exclusive_hashes(
     winner_takes_all: bool = False,
     batch_size: int = 1000,
     two_pass: bool = True,
+    convergence_nr: bool = True,
 ) -> Tuple[List[Tuple[int, int]], pd.DataFrame, pd.DataFrame]:
     """
     This function gets the unique hashes exclusive to each of the organisms that have non-zero overlap with the sample, and
@@ -262,7 +266,7 @@ def get_exclusive_hashes(
     chunk_size = max(1, len(organism_md5sum_list) // (num_threads * 50))
     logger.info(f"Using chunk size of {chunk_size} for parallel processing")
 
-    with Pool(processes=num_threads, initializer=_init_coverage_worker, initargs=(sample_sig,)) as pool:
+    with Pool(processes=num_threads, initializer=_init_coverage_worker, initargs=(sample_sig, convergence_nr)) as pool:
         # Prepare arguments for parallel processing (sample_sig shared via initializer to avoid pickling overhead)
         # Include organism_name for proper matching (fixes misalignment bug from imap_unordered)
         organism_name_list = sub_manifest["organism_name"].to_list()
@@ -712,6 +716,7 @@ def hypothesis_recovery(
     batch_size: int = 1000,
     two_pass: bool = True,
     calculate_coverage: bool = False,
+    convergence_nr: bool = True,
 ):
     """
     Go through each of the organisms that have non-zero overlap with the sample and perform a hypothesis test for the
@@ -769,7 +774,7 @@ def hypothesis_recovery(
     # Get the unique hashes exclusive to each of the organisms that have non-zero overlap with the sample
     exclusive_hashes_info, manifest, final_stats_df = get_exclusive_hashes(
         manifest, nontrivial_organism_names, sample_sig, ksize, path_to_genome_temp_dir,
-        num_threads, winner_takes_all, batch_size, two_pass
+        num_threads, winner_takes_all, batch_size, two_pass, convergence_nr
     )
 
     # Set up the results dataframe columns

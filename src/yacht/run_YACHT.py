@@ -97,6 +97,15 @@ def add_arguments(parser):
         default=False,
     )
     parser.add_argument(
+        "--no_convergence_nr",
+        action="store_true",
+        help="Disable the convergence criterion in the Newton-Raphson lambda estimator, "
+             "running all 1000 iterations unconditionally. This matches the original sylph "
+             "behaviour. By default, iteration stops early when the update falls below "
+             f"LAMBDA_EPSILON ({utils.LAMBDA_EPSILON}).",
+        default=False,
+    )
+    parser.add_argument(
         "--out",
         type=str,
         help="path to output excel file",
@@ -116,6 +125,7 @@ def main(args):
     keep_raw = args.keep_raw  # Keep raw results in output file.
     show_all = args.show_all # Show all organisms (no matter if present) in output file.
     calculate_coverage = args.calculate_coverage  # Use calculated coverage instead of user-supplied list
+    convergence_nr = not args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: True)
     out = str(Path(args.out).absolute())  # full path to output excel file
 
     # Validate mutual exclusivity of --calculate_coverage and --min_coverage_list
@@ -253,6 +263,7 @@ def main(args):
         batch_size,
         two_pass,
         calculate_coverage,
+        convergence_nr,
     )
 
     # remove unnecessary columns

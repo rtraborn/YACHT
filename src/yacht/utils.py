@@ -31,7 +31,7 @@ FILE_LOCATION = os.path.dirname(os.path.realpath(__file__))
 # Sylph (Shaw and Yu, 2024) related constants
 SAMPLE_SIZE_CUTOFF: int = 25
 PVALUE_CUTOFF: float = 0.9999999999
-MIN_ANI_THRESHOLD: float = 0.95  # Minimum ANI threshold for filtering organisms
+MIN_ANI_THRESHOLD: float = 0.90  # Minimum ANI threshold for filtering organisms
 MEDIAN_ANI_THRESHOLD: float = 3.00
 MAX_MEDIAN_FOR_MEAN_FINAL_EST: float = 15.0
 MIN_COUNT_THRESH: int = 3
@@ -614,7 +614,7 @@ def load_one_sig(sig_path: str, ksize: int):
                 )
     return(loaded_sig)
 
-def newton_raphson(ratio: float, mean: float):
+def newton_raphson(ratio: float, mean: float, convergence: bool = True):
     """
     Shaw and Yu (2024)'s implmentation of Newton-Raphson use to assist in the calculation of lambda.
     """
@@ -634,11 +634,11 @@ def newton_raphson(ratio: float, mean: float):
         curr = curr - (t1 - t2) / denom
         if not math.isfinite(curr):
             return None
-        if abs(curr - prev) < LAMBDA_EPSILON:
+        if convergence and abs(curr - prev) < LAMBDA_EPSILON:
             break
     return curr
 
-def mle_zip(full_covs: list[int], _k: float):
+def mle_zip(full_covs: list[int], _k: float, convergence: bool = True):
     """
     Maximum likelihood estimator for the zero-inflated Poisson (ZIP) distribution from Shaw and Yu (2024)
     """
@@ -659,7 +659,7 @@ def mle_zip(full_covs: list[int], _k: float):
 
     mean = np.mean(full_covs)
     nr_input = n_zero / len(full_covs)
-    lambda_out = newton_raphson(nr_input, mean)
+    lambda_out = newton_raphson(nr_input, mean, convergence)
 
     if lambda_out is None or lambda_out < 0 or not math.isfinite(lambda_out):
         lambda_ret = None
