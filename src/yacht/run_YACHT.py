@@ -100,8 +100,8 @@ def add_arguments(parser):
         "--no_convergence_nr",
         action="store_true",
         help="Disable the convergence criterion in the Newton-Raphson lambda estimator, "
-             "running all 1000 iterations unconditionally. This matches the original sylph "
-             "behaviour. By default, iteration stops early when the update falls below "
+             "running all 1000 iterations unconditionally. "
+             "By default, iteration terminates early when the update falls below "
              f"LAMBDA_EPSILON ({utils.LAMBDA_EPSILON}).",
         default=False,
     )
