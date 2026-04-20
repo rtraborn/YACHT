@@ -841,15 +841,16 @@ def hypothesis_recovery(
                 logger.warning(f"No valid lambda for {org_name}, using median_cov={median_cov:.3f} "
                              f"(detection fraction: {coverage_map[org_name]:.3f})")
             else:
-                # Last resort: if neither is available, use strictest test
-                coverage_map[org_name] = 1.0
-                logger.warning(f"No valid coverage data for {org_name}, using default 1.0")
+                # Last resort: if neither is available, use fallback coverage
+                coverage_map[org_name] = fallback_coverage
+                logger.warning(f"No valid coverage data for {org_name}, "
+                            f"using sample-wide fallback coverage={fallback_coverage:.4f}")
 
         # Get organism names in manifest order (aligned with exclusive_hashes_info)
         organism_names = manifest["organism_name"].to_list()
 
         # Build per-organism coverage list aligned with exclusive_hashes_info
-        per_organism_coverage = [coverage_map.get(name, 1.0) for name in organism_names]
+        per_organism_coverage = [coverage_map.get(name, fallback_coverage) for name in organism_names]
 
         # Run hypothesis test with per-organism coverage
         with Pool(processes=num_threads) as p:
