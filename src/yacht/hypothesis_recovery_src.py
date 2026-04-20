@@ -807,6 +807,23 @@ def hypothesis_recovery(
         #  P(a k-mer is detected) = 1 - exp(-lambda)
         # This gives the expected fraction of k-mers that will be observed at least once.
         coverage_map = {}
+
+        # Compute sample-wide median lambda from organisms with valid estimates
+        valid_lambdas = [
+        row['final_est_cov'] for _, row in final_stats_df.iterrows()
+        if pd.notna(row['final_est_cov']) and row['final_est_cov'] > 0
+        ]
+
+        if valid_lambdas:
+            median_lambda = np.median(valid_lambdas)
+            fallback_coverage = 1.0 - np.exp(-median_lambda)
+            logger.info(f"Sample-wide median lambda: {median_lambda:.4f}, "
+                f"fallback detection fraction: {fallback_coverage:.4f}")
+        else:
+        # Truly no valid estimates at all — last resort
+        fallback_coverage = 0.1
+        logger.warning("No valid lambda estimates in sample; using a fallback coverage of 0.1") 
+        
         for _, row in final_stats_df.iterrows():
             org_name = row['organism_name']
             cov_val = row['final_est_cov']
