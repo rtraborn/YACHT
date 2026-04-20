@@ -77,12 +77,11 @@ def cov_calc(sample_sig: sourmash.SourmashSignature, genome_sig: sourmash.Sourma
                 break
 
         # Check if cov_max remains inf (i.e. no valid maximum found)
-if cov_max == float('inf'):
-    logger.debug(
-        f"No coverage outliers found for genome {genome_sig.name} "
-        f"(median_cov={median_cov}). Retaining all coverage values (cov_max=inf), "
-        f"consistent with sylph behavior."
-    )
+    if cov_max == float('inf'):
+        logger.debug(
+            f"No coverage outliers found for genome {genome_sig.name} "
+            f"(median_cov={median_cov}). Retaining all coverage values (cov_max=inf), "
+        )
     # cov_max remains float('inf'), so all covs pass the filter below; consistent with sylph behavior
 
     full_covs = [0] * (len(gn_hashes) - contain_count)
