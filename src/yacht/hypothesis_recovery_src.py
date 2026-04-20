@@ -821,8 +821,8 @@ def hypothesis_recovery(
                 f"fallback detection fraction: {fallback_coverage:.4f}")
         else:
         # Truly no valid estimates at all — last resort
-        fallback_coverage = 0.1
-        logger.warning("No valid lambda estimates in sample; using a fallback coverage of 0.1") 
+            fallback_coverage = 0.1
+            logger.warning("No valid lambda estimates in sample; using a fallback coverage of 0.1") 
         
         for _, row in final_stats_df.iterrows():
             org_name = row['organism_name']
