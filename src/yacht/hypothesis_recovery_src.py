@@ -476,12 +476,17 @@ def recalculate_ani_from_winner_map(
                 eliminated_count += 1
                 continue
 
-            # Check if we have enough data for lambda estimation
+           # Check if we have enough data for lambda estimation
             if len(won_kmers_in_sample) < SAMPLE_SIZE_CUTOFF:
-                # Not enough won k-mers in sample - mark as eliminated
-                final_stats_df.at[idx, 'reassignment_status'] = 'eliminated'
-                final_stats_df.at[idx, 'final_est_ani'] = float('nan')
-                eliminated_count += 1
+                # Not enough won k-mers for reliable lambda re-estimation, but don't eliminate.
+                # Compute naive ANI from won k-mers; only update final_est_ani if the naive
+                # estimate is above threshold — otherwise retain the pre-WTA estimate.
+                if total_won_kmers > 0:
+                    naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
+                    if naive_won_ani >= MIN_ANI_THRESHOLD:
+                        final_stats_df.at[idx, 'final_est_ani'] = naive_won_ani
+                    # else: retain original pre-WTA final_est_ani
+                final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
                 continue
 
             # Build full_cov array (zeros for won k-mers not in sample + coverages for those in sample)
