@@ -176,6 +176,7 @@ def get_exclusive_hashes(
     batch_size: int = 1000,
     two_pass: bool = True,
     convergence_nr: bool = True,
+    min_ani: float = 0.95,
 ) -> Tuple[List[Tuple[int, int]], pd.DataFrame, pd.DataFrame]:
     """
     This function gets the unique hashes exclusive to each of the organisms that have non-zero overlap with the sample, and
@@ -780,7 +781,7 @@ def hypothesis_recovery(
     # Get the unique hashes exclusive to each of the organisms that have non-zero overlap with the sample
     exclusive_hashes_info, manifest, final_stats_df = get_exclusive_hashes(
         manifest, nontrivial_organism_names, sample_sig, ksize, path_to_genome_temp_dir,
-        num_threads, winner_takes_all, batch_size, two_pass, convergence_nr
+        num_threads, winner_takes_all, batch_size, two_pass, convergence_nr, min_ani
     )
 
     # Set up the results dataframe columns
@@ -803,6 +804,8 @@ def hypothesis_recovery(
 
     # Using multiprocessing.Pool to parallelize the execution
     manifest_list = []
+
+    fallback_coverage = min(min_coverage_list) if min_coverage_list else 0.1
 
     if calculate_coverage:
         # CALCULATE_COVERAGE MODE: Use calculated coverage (final_est_cov) per organism
@@ -840,11 +843,11 @@ def hypothesis_recovery(
             elif pd.notna(median_cov) and median_cov > 0:
                 # Fallback: use sample-wide median lambda rather than per-organism
                 # median_cov, since median_cov at low coverage (e.g. 1x) gives an
-                # artificially strict detection fraction of 0.632 (1 - e^-1)
+                # artificially strict detection fraction of (1 - e^-1)
                 coverage_map[org_name] = fallback_coverage
                 logger.warning(f"No valid lambda for {org_name}, using fallback_coverage={fallback_coverage:.4f}")
             else:
-                # Last resort
+                # The last resort
                 coverage_map[org_name] = fallback_coverage
                 logger.warning(f"No valid coverage data for {org_name}, using fallback_coverage={fallback_coverage:.4f}")
 
