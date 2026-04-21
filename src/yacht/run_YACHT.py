@@ -137,9 +137,9 @@ def main(args):
     convergence_nr = not args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: True)
     min_ani = args.min_ani  # Minimum ANI threshold for filtering organisms
 
-    if not (0.90 < min_ani <= 1):
+    if not (0.90 <= min_ani <= 1):
         raise ValueError(
-            f"--min_ani value {min_ani} must be between 0.90 (genus-level; exclusive) and 1 (inclusive)."
+            f"--min_ani value {min_ani} must be between 0.90 (genus-level) and 1 (both inclusive)."
         )
     out = str(Path(args.out).absolute())  # full path to output excel file
 
