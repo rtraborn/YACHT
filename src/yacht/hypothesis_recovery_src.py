@@ -825,7 +825,6 @@ def hypothesis_recovery(
             fallback_coverage = 1.0 - np.exp(-median_lambda)
             logger.info(f"Sample-wide median lambda: {median_lambda:.4f}, "
                         f"fallback detection fraction: {fallback_coverage:.4f}")
-            logger.info(f"DEBUG: fallback_coverage computed as {fallback_coverage:.4f}")
         else:
             fallback_coverage = 0.1
             logger.warning("No valid lambda estimates in sample; using fallback coverage 0.1")
