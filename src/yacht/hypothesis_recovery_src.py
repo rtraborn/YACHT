@@ -14,7 +14,6 @@ from typing import List, Set, Tuple, Dict
 from .utils import (
     load_signature_with_ksize,
     decompress_all_sig_files,
-    MIN_ANI_THRESHOLD,
     ratio_lambda,
     ani_from_lambda,
     MIN_COUNT_THRESH,
@@ -477,18 +476,14 @@ def recalculate_ani_from_winner_map(
                 eliminated_count += 1
                 continue
 
+            # Check if we have enough data for lambda estimation
             if len(won_kmers_in_sample) < SAMPLE_SIZE_CUTOFF:
-                # Insufficient number of won k-mers for reliable lambda re-estimation, but don't remove.
-                # Computes naive ANI from won k-mers; only update final_est_ani if the naive
-                # estimate is above threshold — otherwise retain the pre-WTA estimate, which was computed from a larger k-mer set.
-                if total_won_kmers > 0:
-                    naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
-                    if naive_won_ani >= MIN_ANI_THRESHOLD:
-                        final_stats_df.at[idx, 'final_est_ani'] = naive_won_ani
-                    # else: retains the original pre-WTA final_est_ani
-                final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
+                # Not enough won k-mers in sample - mark as eliminated
+                final_stats_df.at[idx, 'reassignment_status'] = 'eliminated'
+                final_stats_df.at[idx, 'final_est_ani'] = float('nan')
+                eliminated_count += 1
                 continue
-            
+
             # Build full_cov array (zeros for won k-mers not in sample + coverages for those in sample)
             num_zeros = total_won_kmers - len(won_kmers_in_sample)
             full_cov = [0] * num_zeros + won_kmers_in_sample
@@ -721,6 +716,7 @@ def hypothesis_recovery(
     two_pass: bool = True,
     calculate_coverage: bool = False,
     convergence_nr: bool = True,
+    min_ani: float = 0.95,
 ):
     """
     Go through each of the organisms that have non-zero overlap with the sample and perform a hypothesis test for the
@@ -811,24 +807,6 @@ def hypothesis_recovery(
         #  P(a k-mer is detected) = 1 - exp(-lambda)
         # This gives the expected fraction of k-mers that will be observed at least once.
         coverage_map = {}
-
-        # Compute sample-wide median lambda from organisms with valid estimates
-        valid_lambdas = [
-        row['final_est_cov'] for _, row in final_stats_df.iterrows()
-        if pd.notna(row['final_est_cov']) and row['final_est_cov'] > 0
-        ]
-
-        if valid_lambdas:
-            median_lambda = np.median(valid_lambdas)
-            fallback_coverage = 1.0 - np.exp(-median_lambda)
-            logger.info(f"Sample-wide median lambda: {median_lambda:.4f}, "
-                f"fallback detection fraction: {fallback_coverage:.4f}")
-            logger.info(f"DEBUG: fallback_coverage computed as {fallback_coverage:.4f}")
-        else:
-        # Truly no valid estimates at all — last resort
-            fallback_coverage = 0.1
-            logger.warning("No valid lambda estimates in sample; using a fallback coverage of 0.1") 
-        
         for _, row in final_stats_df.iterrows():
             org_name = row['organism_name']
             cov_val = row['final_est_cov']
@@ -846,16 +824,15 @@ def hypothesis_recovery(
                 logger.warning(f"No valid lambda for {org_name}, using median_cov={median_cov:.3f} "
                              f"(detection fraction: {coverage_map[org_name]:.3f})")
             else:
-                # Last resort: if neither is available, use fallback coverage
-                coverage_map[org_name] = fallback_coverage
-                logger.warning(f"No valid coverage data for {org_name}, "
-                            f"using sample-wide fallback coverage={fallback_coverage:.4f}")
+                # Last resort: if neither is available, use strictest test
+                coverage_map[org_name] = 1.0
+                logger.warning(f"No valid coverage data for {org_name}, using default 1.0")
 
         # Get organism names in manifest order (aligned with exclusive_hashes_info)
         organism_names = manifest["organism_name"].to_list()
 
         # Build per-organism coverage list aligned with exclusive_hashes_info
-        per_organism_coverage = [coverage_map.get(name, fallback_coverage) for name in organism_names]
+        per_organism_coverage = [coverage_map.get(name, 1.0) for name in organism_names]
 
         # Run hypothesis test with per-organism coverage
         with Pool(processes=num_threads) as p:
@@ -930,12 +907,12 @@ def hypothesis_recovery(
         )
 
    # ANI threshold filtering
-    logger.info(f"Filtering organisms with final_est_ani < {MIN_ANI_THRESHOLD} ({MIN_ANI_THRESHOLD*100:.0f}% ANI)")
+    logger.info(f"Filtering organisms with final_est_ani < {min_ani} ({min_ani*100:.0f}% ANI)")
     for i in range(len(manifest_list)):
         initial_count = len(manifest_list[i])
         # Keep organisms with ANI >= threshold OR organisms with no ANI estimate (NaN)
         manifest_list[i] = manifest_list[i][
-            (manifest_list[i]['final_est_ani'] >= MIN_ANI_THRESHOLD) |
+            (manifest_list[i]['final_est_ani'] >= min_ani) |
             (manifest_list[i]['final_est_ani'].isna())
         ].reset_index(drop=True)
         filtered_count = initial_count - len(manifest_list[i])

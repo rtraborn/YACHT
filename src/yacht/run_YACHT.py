@@ -100,10 +100,19 @@ def add_arguments(parser):
         "--no_convergence_nr",
         action="store_true",
         help="Disable the convergence criterion in the Newton-Raphson lambda estimator, "
-             "running all 1000 iterations unconditionally. "
-             "By default, iteration terminates early when the update falls below "
+             "running all 1000 iterations unconditionally. This matches the original sylph "
+             "behaviour. By default, iteration stops early when the update falls below "
              f"LAMBDA_EPSILON ({utils.LAMBDA_EPSILON}).",
         default=False,
+    )
+    parser.add_argument(
+        "--min_ani",
+        type=float,
+        help="Minimum ANI threshold for retaining organisms in results. "
+             "Organisms whose final estimated ANI falls below this value are filtered out. "
+             "Default: 0.95 (species-level boundary).",
+        required=False,
+        default=0.95,
     )
     parser.add_argument(
         "--out",
@@ -126,6 +135,12 @@ def main(args):
     show_all = args.show_all # Show all organisms (no matter if present) in output file.
     calculate_coverage = args.calculate_coverage  # Use calculated coverage instead of user-supplied list
     convergence_nr = not args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: True)
+    min_ani = args.min_ani  # Minimum ANI threshold for filtering organisms
+
+    if not (0.90 < min_ani <= 1):
+        raise ValueError(
+            f"--min_ani value {min_ani} must be between 0.90 (genus-level; exclusive) and 1 (inclusive)."
+        )
     out = str(Path(args.out).absolute())  # full path to output excel file
 
     # Validate mutual exclusivity of --calculate_coverage and --min_coverage_list
@@ -264,6 +279,7 @@ def main(args):
         two_pass,
         calculate_coverage,
         convergence_nr,
+        min_ani,
     )
 
     # remove unnecessary columns
