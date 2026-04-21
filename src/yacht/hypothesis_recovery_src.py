@@ -313,7 +313,7 @@ def get_exclusive_hashes(
 
             # Recalculate ANI using only won k-mers (prepares for Pass 2)
             final_stats_df = recalculate_ani_from_winner_map(
-                final_stats_df, winner_map, sample_sig, ksize, batch_size
+                final_stats_df, winner_map, sample_sig, ksize, batch_size, min_ani=min_ani
             )
 
             # Pass 2: Rebuild winner map with refined ANI estimates
@@ -415,7 +415,8 @@ def recalculate_ani_from_winner_map(
     winner_map: Dict[int, Tuple[float, str]],
     sample_sig: sourmash.SourmashSignature,
     ksize: int,
-    batch_size: int = 1000
+    batch_size: int = 1000,
+    min_ani: float = 0.95
 ) -> pd.DataFrame:
     """
     Recalculates ANI for each organism using only k-mers it 'won' in the winner map.
@@ -811,6 +812,21 @@ def hypothesis_recovery(
         # Coverage depth (lambda) is converted to detection fraction using Poisson probability:
         #  P(a k-mer is detected) = 1 - exp(-lambda)
         # This gives the expected fraction of k-mers that will be observed at least once.
+        # Compute sample-wide median lambda for fallback coverage
+        valid_lambdas = [
+            row['final_est_cov'] for _, row in final_stats_df.iterrows()
+            if pd.notna(row['final_est_cov']) and row['final_est_cov'] > 0
+            ]
+        if valid_lambdas:
+            median_lambda = np.median(valid_lambdas)
+            fallback_coverage = 1.0 - np.exp(-median_lambda)
+            logger.info(f"Sample-wide median lambda: {median_lambda:.4f}, "
+                        f"fallback detection fraction: {fallback_coverage:.4f}")
+            logger.info(f"DEBUG: fallback_coverage computed as {fallback_coverage:.4f}")
+        else:
+            fallback_coverage = 0.1
+            logger.warning("No valid lambda estimates in sample; using fallback coverage 0.1")
+        
         coverage_map = {}
         for _, row in final_stats_df.iterrows():
             org_name = row['organism_name']
@@ -822,16 +838,15 @@ def hypothesis_recovery(
                 # Convert depth to the expected fraction of k-mers detected
                 coverage_map[org_name] = 1.0 - np.exp(-cov_val)
             elif pd.notna(median_cov) and median_cov > 0:
-                # Fallback: use median_cov when lambda estimation failed
-                # This helps detect low-abundance taxa where lambda couldn't be estimated
-                # (e.g., fewer than 25 non-zero coverage values)
-                coverage_map[org_name] = 1.0 - np.exp(-median_cov)
-                logger.warning(f"No valid lambda for {org_name}, using median_cov={median_cov:.3f} "
-                             f"(detection fraction: {coverage_map[org_name]:.3f})")
+                # Fallback: use sample-wide median lambda rather than per-organism
+                # median_cov, since median_cov at low coverage (e.g. 1x) gives an
+                # artificially strict detection fraction of 0.632 (1 - e^-1)
+                coverage_map[org_name] = fallback_coverage
+                logger.warning(f"No valid lambda for {org_name}, using fallback_coverage={fallback_coverage:.4f}")
             else:
-                # Last resort: if neither is available, use strictest test
-                coverage_map[org_name] = 1.0
-                logger.warning(f"No valid coverage data for {org_name}, using default 1.0")
+                # Last resort
+                coverage_map[org_name] = fallback_coverage
+                logger.warning(f"No valid coverage data for {org_name}, using fallback_coverage={fallback_coverage:.4f}")
 
         # Get organism names in manifest order (aligned with exclusive_hashes_info)
         organism_names = manifest["organism_name"].to_list()
