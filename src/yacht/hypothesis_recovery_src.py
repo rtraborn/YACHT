@@ -483,7 +483,7 @@ def recalculate_ani_from_winner_map(
                 # estimate is above threshold — otherwise retain the pre-WTA estimate.
                 if total_won_kmers > 0:
                     naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
-                    if naive_won_ani >= MIN_ANI_THRESHOLD:
+                    if naive_won_ani >= min_ani:
                         final_stats_df.at[idx, 'final_est_ani'] = naive_won_ani
                     # else: retain original pre-WTA final_est_ani
                 final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
