@@ -135,7 +135,7 @@ def main(args):
     keep_raw = args.keep_raw  # Keep raw results in output file.
     show_all = args.show_all # Show all organisms (no matter if present) in output file.
     calculate_coverage = args.calculate_coverage  # Use calculated coverage instead of user-supplied list
-    convergence_nr = args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: False)
+    convergence_nr = args.convergence_nr  # Use convergence criterion in Newton-Raphson (default: False)
     min_ani = args.min_ani  # Minimum ANI threshold for filtering organisms
 
     if not (0.90 <= min_ani <= 1):
