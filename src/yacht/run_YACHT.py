@@ -97,12 +97,13 @@ def add_arguments(parser):
         default=False,
     )
     parser.add_argument(
-        "--no_convergence_nr",
+        "--convergence_nr",
         action="store_true",
-        help="Disable the convergence criterion in the Newton-Raphson lambda estimator, "
-             "running all 1000 iterations unconditionally. This matches the original sylph "
-             "behaviour. By default, iteration stops early when the update falls below "
-             f"LAMBDA_EPSILON ({utils.LAMBDA_EPSILON}).",
+        help="Turn on the convergence criterion in the Newton-Raphson lambda estimator, "
+             "terminating when the update falls below "
+             f"LAMBDA_EPSILON ({utils.LAMBDA_EPSILON}). "
+             "By default, all 1000 iterations run without terminating, "
+             "matching the original sylph behavior. ",
         default=False,
     )
     parser.add_argument(
@@ -134,7 +135,7 @@ def main(args):
     keep_raw = args.keep_raw  # Keep raw results in output file.
     show_all = args.show_all # Show all organisms (no matter if present) in output file.
     calculate_coverage = args.calculate_coverage  # Use calculated coverage instead of user-supplied list
-    convergence_nr = not args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: True)
+    convergence_nr = args.no_convergence_nr  # Use convergence criterion in Newton-Raphson (default: False)
     min_ani = args.min_ani  # Minimum ANI threshold for filtering organisms
 
     if not (0.90 <= min_ani <= 1):
