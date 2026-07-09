@@ -129,6 +129,8 @@ def get_organisms_with_nonzero_overlap(
 # Global variables for sharing state across worker processes
 _worker_sample_sig = None
 _worker_convergence_nr = True
+_worker_winner_map = None
+_worker_sample_hashes = None
 
 def _init_coverage_worker(sample_sig, convergence_nr):
     """
@@ -140,6 +142,57 @@ def _init_coverage_worker(sample_sig, convergence_nr):
     global _worker_sample_sig, _worker_convergence_nr
     _worker_sample_sig = sample_sig
     _worker_convergence_nr = convergence_nr
+
+def _init_recalc_worker(winner_map, sample_hashes):
+    global _worker_winner_map, _worker_sample_hashes
+    _worker_winner_map = winner_map
+    _worker_sample_hashes = sample_hashes
+
+
+def _recalc_ani_worker(args):
+    """
+    Worker for parallel ANI recalculation from winner map.
+    Returns (idx, new_ani, status).
+    new_ani=None means retain the original value; float('nan') means eliminated.
+    """
+    idx, organism_name, genome_sig, ksize, min_ani = args
+
+    winner_map = _worker_winner_map
+    sample_hashes = _worker_sample_hashes
+
+    won_kmers_in_sample = []
+    total_won_kmers = 0
+
+    for kmer in genome_sig.minhash.hashes.keys():
+        if kmer in winner_map and winner_map[kmer][1] == organism_name:
+            total_won_kmers += 1
+            if kmer in sample_hashes and sample_hashes[kmer] > 0:
+                won_kmers_in_sample.append(sample_hashes[kmer])
+
+    if total_won_kmers == 0:
+        return (idx, float('nan'), 'eliminated')
+
+    if len(won_kmers_in_sample) < SAMPLE_SIZE_CUTOFF:
+        if total_won_kmers > 0:
+            naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
+            if naive_won_ani >= min_ani:
+                return (idx, naive_won_ani, 'lambda_failed')
+        return (idx, None, 'lambda_failed')
+
+    num_zeros = total_won_kmers - len(won_kmers_in_sample)
+    full_cov = [0] * num_zeros + won_kmers_in_sample
+
+    new_lambda = ratio_lambda(full_cov, MIN_COUNT_THRESH)
+    if new_lambda is None:
+        return (idx, None, 'lambda_failed')
+
+    mean_cov = sum(full_cov) / len(full_cov)
+    new_ani = ani_from_lambda(new_lambda, mean_cov, ksize, full_cov)
+
+    if new_ani is not None:
+        return (idx, new_ani, 'active')
+    return (idx, None, 'ani_failed')
+
 
 def _calculate_coverage_worker(args):
     """
@@ -314,7 +367,8 @@ def get_exclusive_hashes(
 
             # Recalculate ANI using only won k-mers (prepares for Pass 2)
             final_stats_df = recalculate_ani_from_winner_map(
-                final_stats_df, winner_map, sample_sig, ksize, batch_size, min_ani=min_ani
+                final_stats_df, winner_map, sample_sig, ksize, batch_size,
+                min_ani=min_ani, num_threads=num_threads,
             )
 
             # Pass 2: Rebuild winner map with refined ANI estimates
@@ -417,102 +471,59 @@ def recalculate_ani_from_winner_map(
     sample_sig: sourmash.SourmashSignature,
     ksize: int,
     batch_size: int = 1000,
-    min_ani: float = 0.95
+    min_ani: float = 0.95,
+    num_threads: int = 16,
 ) -> pd.DataFrame:
     """
     Recalculates ANI for each organism using only k-mers it 'won' in the winner map.
     This implements Pass 2 of sylph's two-pass winner-takes-all approach.
 
     Organisms that lost all their k-mers are marked as 'eliminated' with rel_abund=0.
-    This is Option D handling: keep in results but flag as inconclusive.
 
     :param final_stats_df: DataFrame with coverage statistics including organism_name,
                           final_est_ani, and genome_sketch columns
     :param winner_map: k-mer to (ANI, organism_name) mapping from build_winner_map()
     :param sample_sig: Sample signature with k-mer abundances
     :param ksize: k-mer size for ANI calculation
-    :param batch_size: Number of organisms to process per batch (default: 1000)
+    :param batch_size: Unused; retained for API compatibility
+    :param min_ani: Minimum ANI threshold; organisms below this are eliminated
+    :param num_threads: Number of parallel worker processes
     :return: Updated DataFrame with recalculated ANI values and reassignment_status column
     """
-    logger.info("Recalculating ANI using only won k-mers (Pass 2 of two-pass approach)")
+    logger.info("Recalculating ANI using only won k-mers (Pass 2, parallelised)")
 
     sample_hashes = sample_sig.minhash.hashes
     total_organisms = len(final_stats_df)
 
-    # Initialize reassignment_status column
     final_stats_df['reassignment_status'] = 'active'
-
-    # Store original ANI for reference
     final_stats_df['original_ani'] = final_stats_df['final_est_ani'].copy()
 
+    args_list = [
+        (idx, row['organism_name'], row['genome_sketch'], ksize, min_ani)
+        for idx, row in final_stats_df.iterrows()
+    ]
+
+    chunk_size = max(1, len(args_list) // (num_threads * 50))
+
+    with Pool(
+        processes=num_threads,
+        initializer=_init_recalc_worker,
+        initargs=(winner_map, sample_hashes),
+    ) as pool:
+        results = list(tqdm(
+            pool.imap_unordered(_recalc_ani_worker, args_list, chunksize=chunk_size),
+            total=len(args_list),
+            desc="Recalculating ANI (parallel)",
+        ))
+
     eliminated_count = 0
-
-    for batch_start in range(0, total_organisms, batch_size):
-        batch_end = min(batch_start + batch_size, total_organisms)
-        batch_num = batch_start // batch_size + 1
-        total_batches = (total_organisms + batch_size - 1) // batch_size
-
-        for idx in tqdm(
-            range(batch_start, batch_end),
-            desc=f"Recalculating ANI (batch {batch_num}/{total_batches})",
-            total=batch_end - batch_start
-        ):
-            row = final_stats_df.iloc[idx]
-            organism_name = row['organism_name']
-            genome_sig = row['genome_sketch']
-
-            # Count k-mers won by this organism and build coverage list
-            won_kmers_in_sample = []
-            total_won_kmers = 0
-
-            for kmer in genome_sig.minhash.hashes.keys():
-                if kmer in winner_map and winner_map[kmer][1] == organism_name:
-                    total_won_kmers += 1
-                    if kmer in sample_hashes and sample_hashes[kmer] > 0:
-                        won_kmers_in_sample.append(sample_hashes[kmer])
-
-            # Handle organisms that lost all k-mers (Option D: mark as eliminated)
-            if total_won_kmers == 0:
-                final_stats_df.at[idx, 'reassignment_status'] = 'eliminated'
-                final_stats_df.at[idx, 'final_est_ani'] = float('nan')
-                eliminated_count += 1
-                continue
-
-           # Check if we have enough data for lambda estimation
-            if len(won_kmers_in_sample) < SAMPLE_SIZE_CUTOFF:
-                # Not enough won k-mers for reliable lambda re-estimation, but don't eliminate.
-                # Compute naive ANI from won k-mers; only update final_est_ani if the naive
-                # estimate is above threshold — otherwise retain the pre-WTA estimate.
-                if total_won_kmers > 0:
-                    naive_won_ani = (len(won_kmers_in_sample) / total_won_kmers) ** (1 / ksize)
-                    if naive_won_ani >= min_ani:
-                        final_stats_df.at[idx, 'final_est_ani'] = naive_won_ani
-                    # else: retain original pre-WTA final_est_ani
-                final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
-                continue
-
-            # Build full_cov array (zeros for won k-mers not in sample + coverages for those in sample)
-            num_zeros = total_won_kmers - len(won_kmers_in_sample)
-            full_cov = [0] * num_zeros + won_kmers_in_sample
-
-            # Recalculate lambda using ratio method
-            new_lambda = ratio_lambda(full_cov, MIN_COUNT_THRESH)
-
-            if new_lambda is None:
-                # Lambda estimation failed - keep original ANI but mark status
-                final_stats_df.at[idx, 'reassignment_status'] = 'lambda_failed'
-                # Keep original ANI value (don't modify final_est_ani)
-                continue
-
-            # Recalculate ANI from new lambda
-            mean_cov = sum(full_cov) / len(full_cov) if full_cov else 0
-            new_ani = ani_from_lambda(new_lambda, mean_cov, ksize, full_cov)
-
-            if new_ani is not None:
-                final_stats_df.at[idx, 'final_est_ani'] = new_ani
-            else:
-                # ANI calculation failed - mark status but keep original
-                final_stats_df.at[idx, 'reassignment_status'] = 'ani_failed'
+    for idx, new_ani, status in results:
+        final_stats_df.at[idx, 'reassignment_status'] = status
+        if status == 'eliminated':
+            final_stats_df.at[idx, 'final_est_ani'] = float('nan')
+            eliminated_count += 1
+        elif new_ani is not None:
+            final_stats_df.at[idx, 'final_est_ani'] = new_ani
 
     logger.info(f"ANI recalculation complete: {eliminated_count} organisms eliminated, "
                 f"{total_organisms - eliminated_count} remain active")
