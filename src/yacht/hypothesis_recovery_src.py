@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import numpy as np
 import warnings
 from scipy.stats import binom
@@ -363,29 +364,39 @@ def get_exclusive_hashes(
             # Two-pass approach (sylph-aligned): more accurate for closely related organisms
             # Pass 1: Build initial winner map using original ANI estimates
             logger.info("Pass 1: Building initial winner map for k-mer reassignment")
+            _t = time.perf_counter()
             winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
+            logger.info(f"[WTA timing] build_winner_map (pass 1): {time.perf_counter() - _t:.1f}s")
 
             # Recalculate ANI using only won k-mers (prepares for Pass 2)
+            _t = time.perf_counter()
             final_stats_df = recalculate_ani_from_winner_map(
                 final_stats_df, winner_map, sample_sig, ksize, batch_size,
                 min_ani=min_ani, num_threads=num_threads,
             )
+            logger.info(f"[WTA timing] recalculate_ani_from_winner_map: {time.perf_counter() - _t:.1f}s")
 
             # Pass 2: Rebuild winner map with refined ANI estimates
             # Only include organisms that weren't eliminated in the recalculation
             logger.info("Pass 2: Rebuilding winner map with refined ANI estimates")
+            _t = time.perf_counter()
             winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
+            logger.info(f"[WTA timing] build_winner_map (pass 2): {time.perf_counter() - _t:.1f}s")
         else:
             # One-pass approach (original): faster but less accurate for related organisms
             logger.info("One-pass mode: Building winner map with initial ANI estimates")
+            _t = time.perf_counter()
             winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
+            logger.info(f"[WTA timing] build_winner_map (one-pass): {time.perf_counter() - _t:.1f}s")
 
             # Add placeholder columns for consistency
             final_stats_df['reassignment_status'] = 'one_pass'
             final_stats_df['original_ani'] = final_stats_df['final_est_ani'].copy()
 
         # Calculate relative abundance using final winner map
+        _t = time.perf_counter()
         final_stats_df = estimate_relative_abundance(final_stats_df, winner_map, sample_sig, batch_size)
+        logger.info(f"[WTA timing] estimate_relative_abundance: {time.perf_counter() - _t:.1f}s")
 
         # Free up memory by dropping genome_sketch column (no longer needed)
         if 'genome_sketch' in final_stats_df.columns:
