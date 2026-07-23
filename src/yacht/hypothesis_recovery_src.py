@@ -449,6 +449,7 @@ def build_winner_map(
 
     organism_names = final_stats_df['organism_name'].to_numpy()
 
+    _t = time.perf_counter()
     kmer_arrays = []
     ani_arrays = []
     row_arrays = []
@@ -463,28 +464,35 @@ def build_winner_map(
         kmer_arrays.append(hashes)
         ani_arrays.append(np.full(hashes.size, ani, dtype=np.float64))
         row_arrays.append(np.full(hashes.size, idx, dtype=np.int64))
+    logger.info(f"[build_winner_map timing] k-mer extraction: {time.perf_counter() - _t:.1f}s")
 
     if not kmer_arrays:
         logger.info("Winner map built with 0 k-mers assigned")
         return {}
 
+    _t = time.perf_counter()
     all_kmers = np.concatenate(kmer_arrays)
     all_anis = np.concatenate(ani_arrays)
     all_rows = np.concatenate(row_arrays)
+    logger.info(f"[build_winner_map timing] concatenate: {time.perf_counter() - _t:.1f}s")
 
     # Position (into the concatenated arrays) of the highest-ANI occurrence of each
     # k-mer. idxmax returns the first occurrence on ties; arrays are in row order, so
     # the earliest organism wins -- identical to the serial implementation.
+    _t = time.perf_counter()
     win_pos = pd.Series(all_anis).groupby(all_kmers, sort=False).idxmax().to_numpy()
+    logger.info(f"[build_winner_map timing] groupby-argmax: {time.perf_counter() - _t:.1f}s")
 
     winning_kmers = all_kmers[win_pos]
     winning_anis = all_anis[win_pos]
     winning_rows = all_rows[win_pos]
 
+    _t = time.perf_counter()
     winner_map = {
         int(k): (float(a), organism_names[r])
         for k, a, r in zip(winning_kmers, winning_anis, winning_rows)
     }
+    logger.info(f"[build_winner_map timing] dict-build: {time.perf_counter() - _t:.1f}s")
 
     logger.info(f"Winner map built with {len(winner_map)} k-mers assigned")
 
