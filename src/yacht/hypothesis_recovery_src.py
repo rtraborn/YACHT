@@ -436,40 +436,55 @@ def build_winner_map(
                           final_est_ani, and genome_sketch columns
     :param path_to_genome_temp_dir: Path to the directory containing genome signature files
     :param ksize: k-mer size
-    :param batch_size: Number of organisms to process per batch (default: 1000)
+    :param batch_size: Unused; retained for API compatibility
     :return: Dictionary mapping k-mer hash -> (ani, organism_name)
              Only the organism with highest ANI "wins" each k-mer
+
+    Vectorized reduction: concatenate every organism's k-mers (in row order) with
+    its ANI, then take a groupby-argmax per k-mer. First-occurrence tie-breaking on
+    equal ANI reproduces the serial strict-'>' "earliest organism wins" semantics.
     """
-    winner_map = {}
     total_organisms = len(final_stats_df)
+    logger.info(f"Building winner map for {total_organisms} organisms (vectorized)")
 
-    logger.info(f"Building winner map for {total_organisms} organisms (batch size: {batch_size})")
+    organism_names = final_stats_df['organism_name'].to_numpy()
 
-    # Process in batches to control memory usage
-    for batch_start in range(0, total_organisms, batch_size):
-        batch_end = min(batch_start + batch_size, total_organisms)
-        batch_num = batch_start // batch_size + 1
-        total_batches = (total_organisms + batch_size - 1) // batch_size
+    kmer_arrays = []
+    ani_arrays = []
+    row_arrays = []
+    for idx in range(total_organisms):
+        ani = final_stats_df.iat[idx, final_stats_df.columns.get_loc('final_est_ani')]
+        if pd.isna(ani):
+            continue
+        genome_sig = final_stats_df.iat[idx, final_stats_df.columns.get_loc('genome_sketch')]
+        hashes = np.fromiter(genome_sig.minhash.hashes, dtype=np.uint64)
+        if hashes.size == 0:
+            continue
+        kmer_arrays.append(hashes)
+        ani_arrays.append(np.full(hashes.size, ani, dtype=np.float64))
+        row_arrays.append(np.full(hashes.size, idx, dtype=np.int64))
 
-        for idx in tqdm(
-            range(batch_start, batch_end),
-            desc=f"Building winner map (batch {batch_num}/{total_batches})",
-            total=batch_end - batch_start
-        ):
-            row = final_stats_df.iloc[idx]
-            organism_name = row['organism_name']
-            ani = row['final_est_ani']
+    if not kmer_arrays:
+        logger.info("Winner map built with 0 k-mers assigned")
+        return {}
 
-            # Skip organisms with no ANI estimate
-            if pd.isna(ani):
-                continue
+    all_kmers = np.concatenate(kmer_arrays)
+    all_anis = np.concatenate(ani_arrays)
+    all_rows = np.concatenate(row_arrays)
 
-            genome_sig = row['genome_sketch']
+    # Position (into the concatenated arrays) of the highest-ANI occurrence of each
+    # k-mer. idxmax returns the first occurrence on ties; arrays are in row order, so
+    # the earliest organism wins -- identical to the serial implementation.
+    win_pos = pd.Series(all_anis).groupby(all_kmers, sort=False).idxmax().to_numpy()
 
-            # For each k-mer, check if it should be reassigned
-            for kmer in genome_sig.minhash.hashes.keys():
-                if kmer not in winner_map or ani > winner_map[kmer][0]:
-                    winner_map[kmer] = (ani, organism_name)
+    winning_kmers = all_kmers[win_pos]
+    winning_anis = all_anis[win_pos]
+    winning_rows = all_rows[win_pos]
+
+    winner_map = {
+        int(k): (float(a), organism_names[r])
+        for k, a, r in zip(winning_kmers, winning_anis, winning_rows)
+    }
 
     logger.info(f"Winner map built with {len(winner_map)} k-mers assigned")
 
