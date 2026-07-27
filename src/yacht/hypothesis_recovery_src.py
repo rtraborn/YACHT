@@ -634,13 +634,13 @@ def estimate_relative_abundance(
     kmer_col = final_stats_df.columns.get_loc('_kmer_array')
     lost_col = final_stats_df.columns.get_loc('kmers_lost')
     abund_col = final_stats_df.columns.get_loc('rel_abund')
+    ani_col = final_stats_df.columns.get_loc('final_est_ani')
 
-    # Global set of all won k-mers (equivalent to the old winner_map key set), sorted
-    # for membership tests. A genome k-mer counts as "lost" only if some organism won it.
-    if won_kmers_by_row:
-        all_won_sorted = np.sort(np.concatenate(list(won_kmers_by_row.values())))
-    else:
-        all_won_sorted = np.empty(0, dtype=np.uint64)
+    # Organisms with a (non-NaN) ANI participated in the reduction, so every one of
+    # their k-mers is in the winner set and kmers_lost = genome_size - won_count directly.
+    # The membership test is only needed for NaN-ANI organisms (one-pass only); the global
+    # won-key set backing it is built lazily on first use so two-pass skips the sort entirely.
+    all_won_sorted = None
 
     for idx in tqdm(range(total_organisms), desc="Calculating relative abundance"):
         if has_reassignment_status and final_stats_df.iat[idx, status_col] == 'eliminated':
@@ -650,8 +650,15 @@ def estimate_relative_abundance(
         won = won_kmers_by_row.get(idx)
         won_count = 0 if won is None else int(won.size)
 
-        # k-mers of this genome owned by some organism, minus those this organism won.
-        kmers_lost = _count_present(genome, all_won_sorted) - won_count
+        if not pd.isna(final_stats_df.iat[idx, ani_col]):
+            kmers_lost = genome.size - won_count
+        else:
+            if all_won_sorted is None:
+                all_won_sorted = (
+                    np.sort(np.concatenate(list(won_kmers_by_row.values())))
+                    if won_kmers_by_row else np.empty(0, dtype=np.uint64)
+                )
+            kmers_lost = _count_present(genome, all_won_sorted) - won_count
         final_stats_df.iat[idx, lost_col] = kmers_lost
 
         if won_count > 0:
