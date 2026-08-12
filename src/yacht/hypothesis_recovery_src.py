@@ -135,7 +135,7 @@ _worker_sample_hashes = None
 
 def _init_coverage_worker(sample_sig, convergence_nr):
     """
-    Initializer for worker processes to set up shared sample signature and convergence flag.
+    Initializes worker processes to set up shared sample signature and convergence flag.
 
     :param sample_sig: Sample signature to be shared across all workers
     :param convergence_nr: Whether to use convergence criterion in Newton-Raphson
@@ -279,7 +279,7 @@ def get_exclusive_hashes(
     ].reset_index(drop=True)
     organism_md5sum_list = sub_manifest["md5sum"].to_list()
 
-    single_occurrence_hashes: Set[int] = set()  # Corrected type annotation
+    single_occurrence_hashes: Set[int] = set()
     multiple_occurrence_hashes: Set[int] = set()
     for md5sum in tqdm(organism_md5sum_list, desc="Processing organism signatures"):
         sig = load_signature_with_ksize(
@@ -296,7 +296,7 @@ def get_exclusive_hashes(
                 single_occurrence_hashes.add(hash)
 
 
-    del multiple_occurrence_hashes  # free up memory
+    del multiple_occurrence_hashes  # frees up memory
 
     # Find hashes that are unique to each organism
     logger.info("Finding hashes that are unique to each organism")
@@ -308,7 +308,7 @@ def get_exclusive_hashes(
             )
         )
 
-    del single_occurrence_hashes  # free up memory
+    del single_occurrence_hashes  # frees up memory
 
     # Get sample hashes
     sample_hashes = set(sample_sig.minhash.hashes)
@@ -321,14 +321,14 @@ def get_exclusive_hashes(
     logger.info(f"Using chunk size of {chunk_size} for parallel processing")
 
     with Pool(processes=num_threads, initializer=_init_coverage_worker, initargs=(sample_sig, convergence_nr)) as pool:
-        # Prepare arguments for parallel processing (sample_sig shared via initializer to avoid pickling overhead)
+        # Prepare arguments for parallel processing (sample_sig shared via the initializer function)
         # Include organism_name for proper matching (fixes misalignment bug from imap_unordered)
         organism_name_list = sub_manifest["organism_name"].to_list()
         args_list = [
             (md5sum, organism_name, path_to_genome_temp_dir, ksize)
             for md5sum, organism_name in zip(organism_md5sum_list, organism_name_list)
         ]
-        # Use imap_unordered for better performance (we are matching on organism_name)
+        # Use imap_unordered for better performance (matching on organism_name)
         stats_list = list(
             tqdm(
                 pool.imap_unordered(_calculate_coverage_worker, args_list, chunksize=chunk_size),
@@ -346,7 +346,7 @@ def get_exclusive_hashes(
     # Concatenate all results - organism_name is already included in each DataFrame
     final_stats_df = pd.concat(stats_list, ignore_index=True)
 
-    del stats_list # free up memory
+    del stats_list # frees up memory
 
     # Find hashes that are unique to each organism and in the sample
     logger.info("Finding hashes that are unique to each organism and in the sample")
@@ -364,9 +364,9 @@ def get_exclusive_hashes(
             # Two-pass approach (sylph-aligned): more accurate for closely related organisms
             # Pass 1: Build initial winner map using original ANI estimates
             logger.info("Pass 1: Building initial winner map for k-mer reassignment")
-            _t = time.perf_counter()
+            _t = time.perf_counter() #timer
             winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
-            logger.info(f"[WTA timing] build_winner_map (pass 1): {time.perf_counter() - _t:.1f}s")
+            logger.info(f"[WTA timing] build_winner_map (pass 1): {time.perf_counter() - _t:.1f}s") #timer
 
             # Recalculate ANI using only won k-mers (prepares for Pass 2)
             _t = time.perf_counter()
@@ -374,36 +374,36 @@ def get_exclusive_hashes(
                 final_stats_df, winner_map, sample_sig, ksize, batch_size,
                 min_ani=min_ani, num_threads=num_threads,
             )
-            logger.info(f"[WTA timing] recalculate_ani_from_winner_map: {time.perf_counter() - _t:.1f}s")
+            logger.info(f"[WTA timing] recalculate_ani_from_winner_map: {time.perf_counter() - _t:.1f}s") #timer
 
             # Pass 2: Rebuild winner map with refined ANI estimates
             # Only include organisms that weren't eliminated in the recalculation
             logger.info("Pass 2: Rebuilding winner map with refined ANI estimates")
-            _t = time.perf_counter()
-            winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
-            logger.info(f"[WTA timing] build_winner_map (pass 2): {time.perf_counter() - _t:.1f}s")
+            _t = time.perf_counter() #timer
+            winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size) #timer
+            logger.info(f"[WTA timing] build_winner_map (pass 2): {time.perf_counter() - _t:.1f}s") #timer
         else:
-            # One-pass approach (original): faster but less accurate for related organisms
+            # One-pass approach: faster but less accurate for related organisms
             logger.info("One-pass mode: Building winner map with initial ANI estimates")
-            _t = time.perf_counter()
-            winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size)
-            logger.info(f"[WTA timing] build_winner_map (one-pass): {time.perf_counter() - _t:.1f}s")
+            _t = time.perf_counter() #timer
+            winner_map = build_winner_map(final_stats_df, path_to_genome_temp_dir, ksize, batch_size) 
+            logger.info(f"[WTA timing] build_winner_map (one-pass): {time.perf_counter() - _t:.1f}s") #timer
 
             # Add placeholder columns for consistency
             final_stats_df['reassignment_status'] = 'one_pass'
             final_stats_df['original_ani'] = final_stats_df['final_est_ani'].copy()
 
         # Calculate relative abundance using final winner map
-        _t = time.perf_counter()
+        _t = time.perf_counter() #timer
         final_stats_df = estimate_relative_abundance(final_stats_df, winner_map, sample_sig, batch_size)
-        logger.info(f"[WTA timing] estimate_relative_abundance: {time.perf_counter() - _t:.1f}s")
+        logger.info(f"[WTA timing] estimate_relative_abundance: {time.perf_counter() - _t:.1f}s") #timer
 
-        # Free up memory by dropping genome_sketch column (no longer needed)
+        # frees up memory by dropping genome_sketch column
         if 'genome_sketch' in final_stats_df.columns:
             logger.info("Releasing genome signature objects to free memory")
             final_stats_df.drop(columns=['genome_sketch'], inplace=True)
     else:
-        logger.info("Skipping winner-takes-all (not enabled). Use --winner_takes_all to enable relative abundance estimation.")
+        logger.info("Skipping winner-takes-all. Use --winner_takes_all to enable relative abundance estimation.")
         # Add placeholder columns for consistency with winner-takes-all output
         final_stats_df['rel_abund'] = float('nan')
         final_stats_df['kmers_lost'] = 0
@@ -425,7 +425,6 @@ def build_winner_map(
 ) -> Dict[int, Tuple[float, str]]:
     """
     Creates a "winner map" procedure that assigns k-mers to the organism with the highest ANI.
-    Uses memory-efficient batch processing.
 
     This implements the "winner takes all" strategy from sylph (Shaw and Yu, 2024) where
     shared k-mers are assigned to the organism with the best ANI match, preventing double-counting.
@@ -501,7 +500,7 @@ def recalculate_ani_from_winner_map(
     :param num_threads: Number of parallel worker processes
     :return: Updated DataFrame with recalculated ANI values and reassignment_status column
     """
-    logger.info("Recalculating ANI using only won k-mers (Pass 2, parallelised)")
+    logger.info("Recalculating ANI using only won k-mers (Pass 2)")
 
     sample_hashes = sample_sig.minhash.hashes
     total_organisms = len(final_stats_df)
@@ -552,7 +551,7 @@ def estimate_relative_abundance(
     Estimates the relative abundance of each organism based on winner_map k-mer assignments.
     Uses memory-efficient batch processing.
 
-    After winner_map assigns shared k-mers to organisms with highest ANI, this calculates:
+    After winner_map assigns shared k-mers to organisms with highest ANI, this function calculates:
     1. How many k-mers each organism "lost" to others (kmers_lost)
     2. Total coverage from k-mers "won" by each organism (used for relative abundance)
     3. Relative abundance normalized across all organisms
@@ -565,7 +564,7 @@ def estimate_relative_abundance(
     :param batch_size: Number of organisms to process per batch (default: 1000)
     :return: Updated DataFrame with rel_abund and kmers_lost columns populated
     """
-    logger.info("Estimating relative abundance using winner map (memory-efficient mode)")
+    logger.info("Estimating relative abundance using winner map")
 
     # Initialize columns
     final_stats_df['kmers_lost'] = 0
