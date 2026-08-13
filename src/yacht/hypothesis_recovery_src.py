@@ -386,9 +386,9 @@ def get_exclusive_hashes(
             # Two-pass approach (sylph-aligned): more accurate for closely related organisms
             # Pass 1: Build initial winner assignment using original ANI estimates
             logger.info("Pass 1: Building initial winner map for k-mer reassignment")
-            _t = time.perf_counter()
+            #_t = time.perf_counter()
             won_by_row = build_winner_map(final_stats_df, ksize)
-            logger.info(f"[WTA timing] build_winner_map (pass 1): {time.perf_counter() - _t:.1f}s")
+            #logger.info(f"[WTA timing] build_winner_map (pass 1): {time.perf_counter() - _t:.1f}s")
 
             # genome_sketch is no longer needed now that '_kmer_array' is cached
             if 'genome_sketch' in final_stats_df.columns:
@@ -396,24 +396,24 @@ def get_exclusive_hashes(
                 final_stats_df.drop(columns=['genome_sketch'], inplace=True)
 
             # Recalculate ANI using only won k-mers (prepares for Pass 2)
-            _t = time.perf_counter()
+            #_t = time.perf_counter()
             final_stats_df = recalculate_ani_from_winner_map(
                 final_stats_df, won_by_row, sample_kmers_sorted, sample_abund_sorted,
                 ksize, min_ani=min_ani, num_threads=num_threads,
             )
-            logger.info(f"[WTA timing] recalculate_ani_from_winner_map: {time.perf_counter() - _t:.1f}s")
+            #logger.info(f"[WTA timing] recalculate_ani_from_winner_map: {time.perf_counter() - _t:.1f}s")
 
             # Pass 2: Rebuild winner assignment with refined ANI estimates
             logger.info("Pass 2: Rebuilding winner map with refined ANI estimates")
-            _t = time.perf_counter()
+            #_t = time.perf_counter()
             won_by_row = build_winner_map(final_stats_df, ksize)
-            logger.info(f"[WTA timing] build_winner_map (pass 2): {time.perf_counter() - _t:.1f}s")
+            #logger.info(f"[WTA timing] build_winner_map (pass 2): {time.perf_counter() - _t:.1f}s")
         else:
             # One-pass approach (original): faster but less accurate for related organisms
             logger.info("One-pass mode: Building winner map with initial ANI estimates")
-            _t = time.perf_counter()
+            #_t = time.perf_counter()
             won_by_row = build_winner_map(final_stats_df, ksize)
-            logger.info(f"[WTA timing] build_winner_map (one-pass): {time.perf_counter() - _t:.1f}s")
+            #logger.info(f"[WTA timing] build_winner_map (one-pass): {time.perf_counter() - _t:.1f}s")
 
             if 'genome_sketch' in final_stats_df.columns:
                 logger.info("Releasing genome signature objects to free memory")
@@ -424,11 +424,11 @@ def get_exclusive_hashes(
             final_stats_df['original_ani'] = final_stats_df['final_est_ani'].copy()
 
         # Calculate relative abundance using final winner assignment
-        _t = time.perf_counter()
+        #_t = time.perf_counter()
         final_stats_df = estimate_relative_abundance(
             final_stats_df, won_by_row, sample_kmers_sorted, sample_abund_sorted, scale,
         )
-        logger.info(f"[WTA timing] estimate_relative_abundance: {time.perf_counter() - _t:.1f}s")
+        #logger.info(f"[WTA timing] estimate_relative_abundance: {time.perf_counter() - _t:.1f}s")
 
         # Free up the cached per-genome k-mer arrays (no longer needed)
         if '_kmer_array' in final_stats_df.columns:
@@ -475,18 +475,18 @@ def build_winner_map(
 
     # Extract each genome's k-mers once and cache; reused on pass 2 and by consumers.
     if '_kmer_array' not in final_stats_df.columns:
-        _t = time.perf_counter()
+        #_t = time.perf_counter()
         sketch_col = final_stats_df.columns.get_loc('genome_sketch')
         final_stats_df['_kmer_array'] = [
             np.fromiter(final_stats_df.iat[i, sketch_col].minhash.hashes, dtype=np.uint64)
             for i in range(total_organisms)
         ]
-        logger.info(f"[build_winner_map timing] k-mer extraction: {time.perf_counter() - _t:.1f}s")
+        #logger.info(f"[build_winner_map timing] k-mer extraction: {time.perf_counter() - _t:.1f}s")
 
     ani_col = final_stats_df.columns.get_loc('final_est_ani')
     kmer_col = final_stats_df.columns.get_loc('_kmer_array')
 
-    _t = time.perf_counter()
+    #_t = time.perf_counter()
     kmer_arrays = []
     ani_arrays = []
     row_arrays = []
@@ -500,30 +500,30 @@ def build_winner_map(
         kmer_arrays.append(hashes)
         ani_arrays.append(np.full(hashes.size, ani, dtype=np.float64))
         row_arrays.append(np.full(hashes.size, idx, dtype=np.int64))
-    logger.info(f"[build_winner_map timing] assemble: {time.perf_counter() - _t:.1f}s")
+    #logger.info(f"[build_winner_map timing] assemble: {time.perf_counter() - _t:.1f}s")
 
     if not kmer_arrays:
         logger.info("Winner map built with 0 k-mers assigned")
         return {}
 
-    _t = time.perf_counter()
+    #_t = time.perf_counter()
     all_kmers = np.concatenate(kmer_arrays)
     all_anis = np.concatenate(ani_arrays)
     all_rows = np.concatenate(row_arrays)
-    logger.info(f"[build_winner_map timing] concatenate: {time.perf_counter() - _t:.1f}s")
+    #logger.info(f"[build_winner_map timing] concatenate: {time.perf_counter() - _t:.1f}s")
 
     # Position (into the concatenated arrays) of the highest-ANI occurrence of each
     # k-mer. idxmax returns the first occurrence on ties; arrays are in row order, so
     # the earliest organism wins -- identical to the serial implementation.
-    _t = time.perf_counter()
+    #_t = time.perf_counter()
     win_pos = pd.Series(all_anis).groupby(all_kmers, sort=False).idxmax().to_numpy()
-    logger.info(f"[build_winner_map timing] groupby-argmax: {time.perf_counter() - _t:.1f}s")
+    #logger.info(f"[build_winner_map timing] groupby-argmax: {time.perf_counter() - _t:.1f}s")
 
     winning_kmers = all_kmers[win_pos]
     winning_rows = all_rows[win_pos]
 
     # Group winning k-mers by their winning organism (replaces the O(M) dict build).
-    _t = time.perf_counter()
+    #_t = time.perf_counter()
     order = np.argsort(winning_rows, kind='stable')
     srt_rows = winning_rows[order]
     srt_kmers = winning_kmers[order]
@@ -531,7 +531,7 @@ def build_winner_map(
     groups = np.split(srt_kmers, bounds)
     uniq_rows = srt_rows[np.concatenate(([0], bounds))]
     won_kmers_by_row = {int(r): g for r, g in zip(uniq_rows, groups)}
-    logger.info(f"[build_winner_map timing] group-by-row: {time.perf_counter() - _t:.1f}s")
+    #logger.info(f"[build_winner_map timing] group-by-row: {time.perf_counter() - _t:.1f}s")
 
     logger.info(f"Winner map built with {len(winning_kmers)} k-mers assigned")
 
